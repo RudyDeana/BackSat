@@ -85,6 +85,16 @@ sudo mv /tmp/interfaces /etc/network/interfaces.d/wlan0
 sudo mkdir -p /etc/hostapd
 sudo cp /opt/backsat/config/hostapd.template /etc/hostapd/hostapd.conf
 sudo sed -i "s/{{SSID}}/BackSat-OS/g; s/{{PASSWORD}}/backsat2025/g; s/{{CHANNEL}}/7/g" /etc/hostapd/hostapd.conf
+sudo chmod 600 /etc/hostapd/hostapd.conf
+
+# Assicurarsi che hostapd non sia masked
+sudo systemctl unmask hostapd
+
+# Configurare hostapd per avviarsi all'avvio
+cat > /tmp/hostapd << EOF
+DAEMON_CONF="/etc/hostapd/hostapd.conf"
+EOF
+sudo mv /tmp/hostapd /etc/default/hostapd
 
 # Configurazione di dnsmasq
 sudo cp /opt/backsat/config/dnsmasq.template /etc/dnsmasq.conf
@@ -94,11 +104,19 @@ echo "Enabling IP forwarding..."
 sudo sh -c "echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf"
 sudo sysctl -p
 
-# Configurare hostapd per avviarsi all'avvio
-cat > /tmp/hostapd << EOF
-DAEMON_CONF="/etc/hostapd/hostapd.conf"
-EOF
-sudo mv /tmp/hostapd /etc/default/hostapd
+# Abilitare e avviare i servizi
+sudo systemctl enable hostapd
+sudo systemctl enable dnsmasq
+
+# Configurare rfkill
+sudo rfkill unblock wifi
+sudo rfkill unblock wlan
+
+# Riavviare i servizi di rete
+sudo systemctl restart networking
+sudo systemctl restart hostapd
+sudo systemctl restart dnsmasq
+
 # BackSat control script
 echo "[4/8] Creating BackSat control script..."
 cat > /tmp/backsat << EOF
