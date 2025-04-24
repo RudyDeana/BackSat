@@ -901,3 +901,91 @@ echo "To see all available commands:"
 echo "  backsat help"
 echo ""
 echo "Good journey with BackSat!"
+
+# Configurazione NetworkManager
+echo "[Configurazione Wi-Fi] Configurazione NetworkManager..."
+cat > /tmp/backsat-ap << EOF
+[connection]
+id=BackSat-AP
+uuid=$(uuidgen)
+type=wifi
+interface-name=wlan0
+permissions=
+
+[wifi]
+band=bg
+mode=ap
+ssid=BackSat-OS
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk=backsat2025
+
+[ipv4]
+method=shared
+address1=192.168.4.1/24
+
+[ipv6]
+method=ignore
+EOF
+
+sudo mv /tmp/backsat-ap /etc/NetworkManager/system-connections/BackSat-AP
+sudo chmod 600 /etc/NetworkManager/system-connections/BackSat-AP
+
+# Disabilitare la gestione automatica di wlan0 da parte di NetworkManager
+cat > /tmp/99-disable-wifi-auto << EOF
+[keyfile]
+unmanaged-devices=interface-name:wlan0
+EOF
+
+sudo mv /tmp/99-disable-wifi-auto /etc/NetworkManager/conf.d/99-disable-wifi-auto.conf
+
+# Riavviare NetworkManager
+sudo systemctl restart NetworkManager
+
+# Rimuovere eventuali connessioni esistenti su wlan0
+sudo nmcli device disconnect wlan0
+
+# Configurazione hostapd
+echo "[Configurazione Wi-Fi] Configurazione hostapd..."
+sudo mkdir -p /etc/hostapd
+cat > /tmp/hostapd.conf << EOF
+interface=wlan0
+driver=nl80211
+ssid=BackSat-OS
+hw_mode=g
+channel=7
+wmm_enabled=0
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=backsat2025
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+country_code=IT
+EOF
+
+sudo mv /tmp/hostapd.conf /etc/hostapd/hostapd.conf
+sudo chmod 600 /etc/hostapd/hostapd.conf
+
+# Configurare il paese per il Wi-Fi
+sudo raspi-config nonint do_wifi_country IT
+
+# Configurare l'interfaccia wlan0
+sudo ip link set wlan0 down
+sudo ip addr flush dev wlan0
+sudo ip link set wlan0 up
+
+# Riavviare i servizi
+echo "[Configurazione Wi-Fi] Riavvio servizi..."
+sudo systemctl unmask hostapd
+sudo systemctl enable hostapd
+sudo systemctl enable dnsmasq
+
+sudo rfkill unblock wifi
+sudo rfkill unblock wlan
+
+sudo systemctl restart dnsmasq
+sudo systemctl restart hostapd
