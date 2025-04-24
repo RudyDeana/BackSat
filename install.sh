@@ -43,6 +43,7 @@ cat > /tmp/backsat_config.json << EOF
 }
 EOF
 sudo mv /tmp/backsat_config.json /opt/backsat/config/config.json
+
 # Creating hostapd and dnsmasq templates
 cat > /opt/backsat/config/hostapd.template << EOF
 interface=wlan0
@@ -60,12 +61,44 @@ wpa_key_mgmt=WPA-PSK
 wpa_pairwise=TKIP
 rsn_pairwise=CCMP
 EOF
+
 cat > /opt/backsat/config/dnsmasq.template << EOF
 interface=wlan0
 dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
 domain=local
 address=/backsat.local/192.168.4.1
 EOF
+
+# Configurazione iniziale dell'interfaccia di rete
+echo "Configuring network interface..."
+cat > /tmp/interfaces << EOF
+allow-hotplug wlan0
+iface wlan0 inet static
+    address 192.168.4.1
+    netmask 255.255.255.0
+    network 192.168.4.0
+    broadcast 192.168.4.255
+EOF
+sudo mv /tmp/interfaces /etc/network/interfaces.d/wlan0
+
+# Configurazione di hostapd
+sudo mkdir -p /etc/hostapd
+sudo cp /opt/backsat/config/hostapd.template /etc/hostapd/hostapd.conf
+sudo sed -i "s/{{SSID}}/BackSat-OS/g; s/{{PASSWORD}}/backsat2025/g; s/{{CHANNEL}}/7/g" /etc/hostapd/hostapd.conf
+
+# Configurazione di dnsmasq
+sudo cp /opt/backsat/config/dnsmasq.template /etc/dnsmasq.conf
+
+# Abilitare il forwarding IP
+echo "Enabling IP forwarding..."
+sudo sh -c "echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf"
+sudo sysctl -p
+
+# Configurare hostapd per avviarsi all'avvio
+cat > /tmp/hostapd << EOF
+DAEMON_CONF="/etc/hostapd/hostapd.conf"
+EOF
+sudo mv /tmp/hostapd /etc/default/hostapd
 # BackSat control script
 echo "[4/8] Creating BackSat control script..."
 cat > /tmp/backsat << EOF
@@ -721,6 +754,14 @@ echo "  backsat restart  - Restart BackSat services"
 echo "  backsat wifi-config <new-ssid> <new-password>  - Change Wi-Fi configuration"
 echo "  backsat update   - Update BackSat to the latest version"
 echo ""
+
+# Avvio iniziale dei servizi
+echo "Starting initial services..."
+sudo systemctl restart dnsmasq
+sudo systemctl restart hostapd
+sudo systemctl restart backsat
+sudo systemctl restart nginx
+
 echo "To start BackSat now, run:"
 echo "  backsat start"
 echo ""
