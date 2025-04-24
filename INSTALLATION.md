@@ -29,7 +29,7 @@ http://backsat.local or http://"device-ip"
 
 ---
 
-🧪 BackSat Lite (Coming Soon)
+### 🧪 BackSat Lite (Coming Soon)
 
 BackSat Lite is the minimal firmware-based version for:
 	•	ESP32
