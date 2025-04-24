@@ -41,16 +41,22 @@ It creates networks, exchanges data, and communicates, all **offline**.
 
 ## 🧩 Versions of BackSat
 
-### 🖥 [BackSat OS](#-installation-backsat-os)
-- For Raspberry Pi, mini PC, laptop
-- Complete OS image with dashboard
-- Local Wi-Fi hotspot
-- Run mesh, dashboard, tools directly
+### 🖥 BackSat OS
 
-### 🔌 [BackSat Lite](#-backsat-lite)
-- For microcontrollers (ESP32, Arduino + LoRa, Meshtastic)
-- Connect via serial or Wi-Fi to external interface
-- Lightweight message + signal system
+- Works on Raspberry Pi, mini PC, laptop  
+- Custom operating system with local web dashboard  
+- Local Wi-Fi hotspot  
+- Dashboard enables offline chat, file sharing, backup, node map, and more  
+- Manages mesh connections with other BackSat nodes  
+
+### 🔌 BackSat Lite
+
+- For microcontrollers (ESP32, Arduino + LoRa, Meshtastic)  
+- Connects via serial or Wi-Fi to external interface  
+- Sends/receives messages and signals  
+- Lightweight, low-power
+
+> 🔧 Firmware and microcontroller instructions coming soon!
 
 ---
 
@@ -61,4 +67,4 @@ You can install BackSat OS on any device that supports Linux.
 ### 🔧 Quick install using script
 
 ```bash
-curl -s https://raw.githubusercontent.com/<tuo-username>/BackSat/main/backsat-install-script.sh | bash
+curl -s https://raw.githubusercontent.com/<your-username>/BackSat/main/backsat-install-script.sh | bash
