@@ -773,6 +773,116 @@ echo "  backsat wifi-config <new-ssid> <new-password>  - Change Wi-Fi configurat
 echo "  backsat update   - Update BackSat to the latest version"
 echo ""
 
+# Funzione di diagnostica Wi-Fi
+check_wifi_status() {
+    echo "=== Diagnostica Wi-Fi ==="
+    echo "1. Controllo interfaccia wireless..."
+    iwconfig
+    
+    echo -e "\n2. Stato dei servizi..."
+    systemctl status hostapd | cat
+    systemctl status dnsmasq | cat
+    
+    echo -e "\n3. Controllo configurazione hostapd..."
+    cat /etc/hostapd/hostapd.conf
+    
+    echo -e "\n4. Controllo rfkill..."
+    rfkill list all
+    
+    echo -e "\n5. Controllo interfacce di rete..."
+    ip addr show
+    
+    echo -e "\n6. Controllo driver Wi-Fi..."
+    lsmod | grep -E '(^|[^a-zA-Z0-9_])wifi|wlan'
+}
+
+# Prima di avviare i servizi, assicuriamoci che tutto sia configurato correttamente
+echo "[Configurazione Wi-Fi] Preparazione interfaccia wireless..."
+sudo ip link set wlan0 down
+sudo ip addr flush dev wlan0
+
+# Configurazione wlan0
+sudo ip link set wlan0 up
+sudo ip addr add 192.168.4.1/24 dev wlan0
+
+# Verifica che il driver nl80211 sia caricato
+if ! lsmod | grep -q cfg80211; then
+    echo "Caricamento driver Wi-Fi..."
+    sudo modprobe cfg80211
+fi
+
+# Assicurarsi che hostapd usi l'interfaccia corretta
+sudo sed -i 's/^DAEMON_OPTS=.*/DAEMON_OPTS="-dd -B"/' /etc/default/hostapd
+
+# Riavvio completo dei servizi di rete
+echo "[Configurazione Wi-Fi] Riavvio servizi di rete..."
+sudo systemctl stop hostapd
+sudo systemctl stop dnsmasq
+sudo systemctl stop networking
+
+sudo systemctl unmask hostapd
+sudo systemctl enable hostapd
+sudo systemctl enable dnsmasq
+
+sudo rfkill unblock wifi
+sudo rfkill unblock wlan
+
+sudo systemctl start networking
+sudo systemctl start hostapd
+sudo systemctl start dnsmasq
+
+# Esegui diagnostica
+echo "[Configurazione Wi-Fi] Esecuzione diagnostica..."
+check_wifi_status
+
+# Alla fine dello script, dopo "Good journey with BackSat!"
+echo -e "\nPer diagnosticare problemi con il Wi-Fi, esegui:"
+echo "sudo /usr/local/bin/backsat wifi-debug"
+
+# Creiamo uno script di debug
+cat > /tmp/wifi-debug << 'EOF'
+#!/bin/bash
+check_wifi_status() {
+    echo "=== Diagnostica Wi-Fi ==="
+    echo "1. Controllo interfaccia wireless..."
+    iwconfig
+    
+    echo -e "\n2. Stato dei servizi..."
+    systemctl status hostapd | cat
+    systemctl status dnsmasq | cat
+    
+    echo -e "\n3. Controllo configurazione hostapd..."
+    cat /etc/hostapd/hostapd.conf
+    
+    echo -e "\n4. Controllo rfkill..."
+    rfkill list all
+    
+    echo -e "\n5. Controllo interfacce di rete..."
+    ip addr show
+    
+    echo -e "\n6. Controllo driver Wi-Fi..."
+    lsmod | grep -E '(^|[^a-zA-Z0-9_])wifi|wlan'
+}
+
+case "$1" in
+    "restart")
+        echo "Riavvio servizi Wi-Fi..."
+        sudo systemctl stop hostapd dnsmasq
+        sudo rfkill unblock wifi
+        sudo rfkill unblock wlan
+        sudo ip link set wlan0 down
+        sudo ip link set wlan0 up
+        sudo systemctl start hostapd dnsmasq
+        ;;
+    *)
+        check_wifi_status
+        ;;
+esac
+EOF
+
+sudo mv /tmp/wifi-debug /usr/local/bin/backsat-wifi-debug
+sudo chmod +x /usr/local/bin/backsat-wifi-debug
+
 # Avvio iniziale dei servizi
 echo "Starting initial services..."
 sudo systemctl restart dnsmasq
