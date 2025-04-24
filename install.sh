@@ -147,7 +147,7 @@ stop_services() {
   systemctl stop backsat
   echo "BackSat OS stopped."
 }
-# Function to modify SSID and password
+ #Function to modify SSID and password
 change_wifi() {
   if [ -z "\$1" ] || [ -z "\$2" ]; then
     echo "Usage: backsat wifi-config <new-ssid> <new-password>"
@@ -167,38 +167,38 @@ update_backsat() {
   echo "Updating BackSat OS..."
   
   # Backup current configuration
-  cp "\$CONFIG_FILE" "\$BACKSAT_DIR/config/config.backup.json"
+  cp "\${CONFIG_FILE}" "\${BACKSAT_DIR}/config/config.backup.json"
   
   # Download latest version from your repository
   TMP_DIR="\$(mktemp -d)"
-  wget -q https://github.com/RudyDeana/BackSat/archive/main.zip -O "\$TMP_DIR/backsat.zip"
+  wget -q https://github.com/RudyDeana/BackSat/archive/main.zip -O "\${TMP_DIR}/backsat.zip"
   
   if [ \$? -ne 0 ]; then
     echo "Error downloading update. Check your internet connection."
-    rm -rf "\$TMP_DIR"
+    rm -rf "\${TMP_DIR}"
     return 1
   fi
   
   # Extract and update
-  unzip -q "\$TMP_DIR/backsat.zip" -d "\$TMP_DIR"
+  unzip -q "\${TMP_DIR}/backsat.zip" -d "\${TMP_DIR}"
   
   # Copy updated files
-  cp -r "\$TMP_DIR/BackSat-main/"* "\$BACKSAT_DIR/"
+  cp -r "\${TMP_DIR}/BackSat-main/"* "\${BACKSAT_DIR}/"
   
   # Update version in config
-  if [ -f "\$TMP_DIR/BackSat-main/version" ]; then
-    NEW_VERSION=\$(cat "\$TMP_DIR/BackSat-main/version")
+  if [ -f "\${TMP_DIR}/BackSat-main/version" ]; then
+    NEW_VERSION="\$(cat "\${TMP_DIR}/BackSat-main/version")"
     TMP_FILE="\$(mktemp)"
-    jq ".system.version = \"\$NEW_VERSION\"" "\$CONFIG_FILE" > "\$TMP_FILE"
-    mv "\$TMP_FILE" "\$CONFIG_FILE"
-    echo "Updated to version \$NEW_VERSION"
+    jq ".system.version = \"\${NEW_VERSION}\"" "\${CONFIG_FILE}" > "\${TMP_FILE}"
+    mv "\${TMP_FILE}" "\${CONFIG_FILE}"
+    echo "Updated to version \${NEW_VERSION}"
   fi
   
   # Cleanup
-  rm -rf "\$TMP_DIR"
+  rm -rf "\${TMP_DIR}"
   
   # Update permissions
-  sudo chown -R pi:pi "\$BACKSAT_DIR"
+  sudo chown -R pi:pi "\${BACKSAT_DIR}"
   
   echo "BackSat OS updated successfully"
   echo "To apply changes run: backsat restart"
