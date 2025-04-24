@@ -147,7 +147,7 @@ stop_services() {
   systemctl stop backsat
   echo "BackSat OS stopped."
 }
- #Function to modify SSID and password
+# Function to modify SSID and password
 change_wifi() {
   if [ -z "\$1" ] || [ -z "\$2" ]; then
     echo "Usage: backsat wifi-config <new-ssid> <new-password>"
@@ -167,40 +167,27 @@ update_backsat() {
   echo "Updating BackSat OS..."
   
   # Backup current configuration
-  cp "\${CONFIG_FILE}" "\${BACKSAT_DIR}/config/config.backup.json"
+  cp \$CONFIG_FILE \$BACKSAT_DIR/config/config.backup.json
   
-  # Download latest version from your repository
+  # Download latest version from repository
   TMP_DIR="\$(mktemp -d)"
-  wget -q https://github.com/RudyDeana/BackSat/archive/main.zip -O "\${TMP_DIR}/backsat.zip"
-  
-  if [ \$? -ne 0 ]; then
-    echo "Error downloading update. Check your internet connection."
-    rm -rf "\${TMP_DIR}"
-    return 1
-  fi
+  wget -q https://github.com/backsatos/installer/archive/main.zip -O \$TMP_DIR/backsat.zip
   
   # Extract and update
-  unzip -q "\${TMP_DIR}/backsat.zip" -d "\${TMP_DIR}"
-  
-  # Copy updated files
-  cp -r "\${TMP_DIR}/BackSat-main/"* "\${BACKSAT_DIR}/"
+  unzip -q \$TMP_DIR/backsat.zip -d \$TMP_DIR
+  cp -r \$TMP_DIR/installer-main/dashboard/* \$BACKSAT_DIR/dashboard/
+  cp -r \$TMP_DIR/installer-main/bin/* \$BACKSAT_DIR/bin/
   
   # Update version in config
-  if [ -f "\${TMP_DIR}/BackSat-main/version" ]; then
-    NEW_VERSION="\$(cat "\${TMP_DIR}/BackSat-main/version")"
-    TMP_FILE="\$(mktemp)"
-    jq ".system.version = \"\${NEW_VERSION}\"" "\${CONFIG_FILE}" > "\${TMP_FILE}"
-    mv "\${TMP_FILE}" "\${CONFIG_FILE}"
-    echo "Updated to version \${NEW_VERSION}"
-  fi
+  NEW_VERSION=\$(cat \$TMP_DIR/installer-main/version)
+  TMP_FILE="\$(mktemp)"
+  jq ".system.version = \"\$NEW_VERSION\"" \$CONFIG_FILE > \$TMP_FILE
+  mv \$TMP_FILE \$CONFIG_FILE
   
   # Cleanup
-  rm -rf "\${TMP_DIR}"
+  rm -rf \$TMP_DIR
   
-  # Update permissions
-  sudo chown -R pi:pi "\${BACKSAT_DIR}"
-  
-  echo "BackSat OS updated successfully"
+  echo "BackSat OS updated to version \$NEW_VERSION"
   echo "To apply changes run: backsat restart"
 }
 # Add-on management
@@ -271,56 +258,14 @@ show_help() {
   echo "  stop          - Stop BackSat services"
   echo "  restart       - Restart BackSat services"
   echo "  status        - Show services status"
-  echo "  debug         - Show detailed debug information and logs"
   echo "  wifi-config   - Change SSID and password (backsat wifi-config <ssid> <password>)"
   echo "  update        - Update BackSat to the latest version"
   echo "  addon-list    - List available and active add-ons"
   echo "  addon-install - Install an add-on (backsat addon-install <addon-name>)"
   echo "  help          - Show this help message"
 }
-
-# Add debug function
-debug_system() {
-  echo "=== BackSat Debug Information ==="
-  echo ""
-  echo "1. Network Interface Status:"
-  echo "-------------------------"
-  ip addr show wlan0
-  echo ""
-  echo "2. Hostapd Configuration:"
-  echo "-------------------------"
-  cat /etc/hostapd/hostapd.conf
-  echo ""
-  echo "3. DNSMasq Configuration:"
-  echo "-------------------------"
-  cat /etc/dnsmasq.conf
-  echo ""
-  echo "4. Service Status:"
-  echo "-------------------------"
-  systemctl status hostapd
-  systemctl status dnsmasq
-  echo ""
-  echo "5. Recent Logs:"
-  echo "-------------------------"
-  echo "Hostapd logs:"
-  journalctl -u hostapd -n 20 --no-pager
-  echo ""
-  echo "DNSMasq logs:"
-  journalctl -u dnsmasq -n 20 --no-pager
-  echo ""
-  echo "6. IP Forwarding Status:"
-  echo "-------------------------"
-  cat /proc/sys/net/ipv4/ip_forward
-  echo ""
-  echo "7. Network Routing:"
-  echo "-------------------------"
-  ip route
-  echo ""
-  echo "=== End of Debug Information ==="
-}
-
 # Argument handling
-case "$1" in
+case "\$1" in
   start)
     start_services
     ;;
@@ -335,11 +280,8 @@ case "$1" in
   status)
     systemctl status hostapd dnsmasq backsat nginx
     ;;
-  debug)
-    debug_system
-    ;;
   wifi-config)
-    change_wifi "$2" "$3"
+    change_wifi "\$2" "\$3"
     ;;
   update)
     update_backsat
@@ -348,7 +290,7 @@ case "$1" in
     list_addons
     ;;
   addon-install)
-    install_addon "$2"
+    install_addon "\$2"
     ;;
   *)
     show_help
