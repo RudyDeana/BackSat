@@ -51,7 +51,7 @@ It creates networks, exchanges data, and communicates, all **offline**.
 
 ### 🔌 BackSat Lite
 
-- For microcontrollers (ESP32, Arduino + LoRa, Meshtastic)  
+- For microcontrollers (ESP32, Arduino, ecc.)  
 - Connects via serial or Wi-Fi to external interface  
 - Sends/receives messages and signals  
 - Lightweight, low-power
