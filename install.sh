@@ -11,7 +11,7 @@ echo ""
 # System update
 echo "[1/8] Updating system..."
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y git dnsmasq hostapd python3-pip nginx sqlite3 python3-flask jq wget unzip network-manager
+sudo apt install -y git dnsmasq hostapd python3-pip nginx sqlite3 python3-flask jq wget unzip network-manager uuidgen rfkill
 
 # Creating BackSat directories
 echo "[2/8] Creating BackSat directory structure..."
@@ -116,93 +116,108 @@ local=/local/
 domain=local
 # Risoluzione nome BackSat
 address=/backsat.local/192.168.4.1
-# Log per debug
-log-queries
-log-dhcp
 EOF
 
 sudo mv /tmp/dnsmasq.conf /etc/dnsmasq.conf
 
-# Configurazione iniziale dell'interfaccia di rete
-echo "Configuring network interface..."
-cat > /tmp/interfaces << EOF
-allow-hotplug wlan0
-iface wlan0 inet static
-    address 192.168.4.1
-    netmask 255.255.255.0
-    network 192.168.4.0
-    broadcast 192.168.4.255
-EOF
-sudo mv /tmp/interfaces /etc/network/interfaces.d/wlan0
-
-# Configurazione di hostapd
-sudo mkdir -p /etc/hostapd
-sudo cp /opt/backsat/config/hostapd.template /etc/hostapd/hostapd.conf
-sudo sed -i "s/{{SSID}}/BackSat-OS/g; s/{{PASSWORD}}/backsat2025/g; s/{{CHANNEL}}/7/g" /etc/hostapd/hostapd.conf
-sudo chmod 600 /etc/hostapd/hostapd.conf
-
-# Assicurarsi che hostapd non sia masked
-sudo systemctl unmask hostapd
-
-# Configurare hostapd per avviarsi all'avvio
-cat > /tmp/hostapd << EOF
-DAEMON_CONF="/etc/hostapd/hostapd.conf"
-EOF
-sudo mv /tmp/hostapd /etc/default/hostapd
-
-# Configurazione di dnsmasq
-sudo cp /opt/backsat/config/dnsmasq.template /etc/dnsmasq.conf
-
-# Abilitare il forwarding IP
-echo "Enabling IP forwarding..."
-sudo sh -c "echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf"
-sudo sysctl -p
-
-# Abilitare e avviare i servizi
-sudo systemctl enable hostapd
-sudo systemctl enable dnsmasq
-
-# Configurare rfkill
-sudo rfkill unblock wifi
-sudo rfkill unblock wlan
-
-# Riavviare i servizi di rete
-sudo systemctl restart networking
-sudo systemctl restart hostapd
-sudo systemctl restart dnsmasq
-
-# BackSat control script
-echo "[4/8] Creating BackSat control script..."
+# Creare lo script di controllo BackSat
+echo "[5/8] Creating control script..."
 cat > /tmp/backsat << 'EOF'
 #!/bin/bash
+
+reload_services() {
+    echo "Reloading systemd services..."
+    sudo systemctl daemon-reload
+}
+
+start_services() {
+    echo "Starting BackSat services..."
+    reload_services
+    sudo systemctl start dnsmasq
+    sleep 2
+    sudo systemctl start hostapd
+    sleep 2
+    sudo systemctl start backsat
+    sleep 2
+    sudo systemctl start nginx
+    echo "All services started. Wait 30 seconds before connecting."
+}
+
+stop_services() {
+    echo "Stopping BackSat services..."
+    sudo systemctl stop nginx
+    sudo systemctl stop backsat
+    sudo systemctl stop hostapd
+    sudo systemctl stop dnsmasq
+}
+
+restart_wifi() {
+    echo "Restarting Wi-Fi services..."
+    # Stop services
+    sudo systemctl stop hostapd
+    sudo systemctl stop dnsmasq
+    
+    # Reset Wi-Fi
+    sudo rfkill unblock wifi
+    sudo rfkill unblock wlan
+    
+    # Reset interface
+    sudo ip link set wlan0 down
+    sleep 2
+    sudo ip addr flush dev wlan0
+    sleep 2
+    sudo ip link set wlan0 up
+    sudo ip addr add 192.168.4.1/24 dev wlan0
+    sleep 2
+    
+    # Verify hostapd configuration
+    echo "Verifying hostapd configuration..."
+    sudo hostapd -dd /etc/hostapd/hostapd.conf -P /run/hostapd.pid -B
+    if [ $? -ne 0 ]; then
+        echo "Error: hostapd configuration test failed"
+        return 1
+    fi
+    
+    # Restart services
+    sudo systemctl restart dnsmasq
+    sleep 2
+    sudo systemctl restart hostapd
+    
+    echo "Wi-Fi services restarted. Wait 30 seconds and try connecting again."
+    echo "If connection still fails, try: backsat-debug"
+}
 
 update_backsat() {
     echo "Updating BackSat OS..."
     curl -s https://raw.githubusercontent.com/RudyDeana/BackSat/refs/heads/main/install.sh | bash
 }
 
-restart_wifi() {
-    echo "Restarting Wi-Fi services..."
-    sudo rfkill unblock wifi
-    sudo rfkill unblock wlan
-    sudo systemctl restart NetworkManager
-    sudo ip link set wlan0 down
-    sudo ip addr flush dev wlan0
-    sudo ip link set wlan0 up
-    sudo systemctl restart hostapd
-    sudo systemctl restart dnsmasq
-    echo "Wi-Fi services restarted. Wait 30 seconds and try connecting again."
+show_status() {
+    echo "=== BackSat Services Status ==="
+    echo -e "\n[1/4] hostapd status:"
+    systemctl status hostapd | cat
+    echo -e "\n[2/4] dnsmasq status:"
+    systemctl status dnsmasq | cat
+    echo -e "\n[3/4] backsat status:"
+    systemctl status backsat | cat
+    echo -e "\n[4/4] nginx status:"
+    systemctl status nginx | cat
+    
+    echo -e "\nNetwork Interface:"
+    ip addr show wlan0
 }
 
 case "$1" in
     "start")
-        sudo systemctl start hostapd dnsmasq backsat nginx
+        start_services
         ;;
     "stop")
-        sudo systemctl stop hostapd dnsmasq backsat nginx
+        stop_services
         ;;
     "restart")
-        sudo systemctl restart hostapd dnsmasq backsat nginx
+        stop_services
+        sleep 5
+        start_services
         ;;
     "update")
         update_backsat
@@ -211,31 +226,43 @@ case "$1" in
         restart_wifi
         ;;
     "status")
-        echo "=== BackSat Services Status ==="
-        systemctl status hostapd dnsmasq backsat nginx | cat
+        show_status
+        ;;
+    "reload")
+        reload_services
         ;;
     *)
         echo "BackSat OS Control"
         echo "Usage: backsat <command>"
         echo ""
-        echo "Commands:"
-        echo "  start        - Start all services"
+        echo "Main Commands:"
+        echo "  start        - Start all BackSat services"
         echo "  stop         - Stop all services"
         echo "  restart      - Restart all services"
-        echo "  update       - Update BackSat OS"
-        echo "  wifi-restart - Restart Wi-Fi services"
-        echo "  status       - Show services status"
+        echo "  status       - Show detailed status of all services"
         echo ""
-        echo "Debug commands:"
+        echo "Network Commands:"
+        echo "  wifi-restart - Reset and restart Wi-Fi services"
+        echo ""
+        echo "System Commands:"
+        echo "  update       - Update BackSat OS from GitHub"
+        echo "  reload       - Reload systemd services"
+        echo ""
+        echo "Debug Commands:"
         echo "  backsat-test   - Test connectivity"
         echo "  backsat-debug  - Show Wi-Fi diagnostic"
+        echo ""
+        echo "For more information visit:"
+        echo "  https://github.com/RudyDeana/BackSat"
         ;;
 esac
 EOF
+
 sudo mv /tmp/backsat /usr/local/bin/backsat
 sudo chmod +x /usr/local/bin/backsat
+
 # Installing web dashboard (Flask)
-echo "[5/8] Installing web dashboard..."
+echo "[6/8] Installing web dashboard..."
 cat > /opt/backsat/dashboard/app.py << EOF
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import os
@@ -699,27 +726,18 @@ EOF
 sudo mv /tmp/backsat-test /usr/local/bin/backsat-test
 sudo chmod +x /usr/local/bin/backsat-test
 
-# Configure permissions
-echo "[8/8] Configuring final permissions..."
-sudo chown -R pi:pi /opt/backsat
-# Create wrapper installer script for GitHub
-cat > /tmp/installer.sh << EOF
-#!/bin/bash
-# BackSat OS - Installer Wrapper
-echo "====================================================="
-echo "   BackSat OS - The Backpack Satellite"
-echo "====================================================="
-echo "Downloading..."
-# Download installation script
-wget -q https://raw.githubusercontent.com/backsatos/installer/main/install.sh -O /tmp/backsat_install.sh
-chmod +x /tmp/backsat_install.sh
-# Run installation script
-bash /tmp/backsat_install.sh
-# Cleanup
-rm -f /tmp/backsat_install.sh
-EOF
-sudo mv /tmp/installer.sh /usr/local/bin/backsat-installer
-sudo chmod +x /usr/local/bin/backsat-installer
+# Prima di finire, ricaricare systemd
+sudo systemctl daemon-reload
+
+# Abilitare i servizi
+echo "[7/8] Enabling services..."
+sudo systemctl unmask hostapd
+sudo systemctl enable hostapd
+sudo systemctl enable dnsmasq
+sudo systemctl enable backsat
+sudo systemctl enable nginx
+
+# Messaggio finale
 echo ""
 echo "====================================================="
 echo "BackSat OS installation completed!"
@@ -727,26 +745,22 @@ echo "====================================================="
 echo ""
 echo "Your BackSat node is ready."
 echo ""
-echo "Main commands:"
-echo "  backsat start      - Start BackSat services"
-echo "  backsat stop       - Stop BackSat services"
-echo "  backsat restart    - Restart BackSat services"
-echo "  backsat debug      - Show diagnostic information"
-echo ""
-
-# Aggiungere al messaggio finale
 echo "For connection issues:"
-echo "  backsat wifi-restart  - Restart Wi-Fi services"
-echo "  backsat-test         - Test connectivity"
-echo "  backsat-debug        - Show Wi-Fi diagnostic"
+echo "  1. First try: backsat wifi-restart"
+echo "  2. Wait 30 seconds"
+echo "  3. If still not working:"
+echo "     - backsat status    (to see what's wrong)"
+echo "     - backsat-debug     (for detailed Wi-Fi info)"
 echo ""
 echo "To update BackSat:"
 echo "  backsat update"
 echo ""
 echo "After startup:"
-echo "1. Connect to the 'BackSat-OS' Wi-Fi network (password: backsat2025)"
-echo "2. If connection fails, wait 30 seconds and try:"
+echo "1. Run: backsat start"
+echo "2. Wait 30 seconds"
+echo "3. Connect to the 'BackSat-OS' Wi-Fi network (password: backsat2025)"
+echo "4. If connection fails:"
 echo "   backsat wifi-restart"
-echo "3. Access the dashboard: http://backsat.local or http://192.168.4.1"
+echo "5. Access the dashboard: http://backsat.local or http://192.168.4.1"
 echo ""
 echo "Good journey with BackSat!"
