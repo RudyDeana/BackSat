@@ -70,24 +70,24 @@ EOF
 sudo mv /tmp/backsat-ap /etc/NetworkManager/system-connections/BackSat-AP
 sudo chmod 600 /etc/NetworkManager/system-connections/BackSat-AP
 
-# Configurazione hostapd
-sudo mkdir -p /etc/hostapd
+# Configurazione hostapd migliorata per Mac
 cat > /tmp/hostapd.conf << EOF
 interface=wlan0
 driver=nl80211
 ssid=BackSat-OS
 hw_mode=g
 channel=7
-wmm_enabled=0
-macaddr_acl=0
+wmm_enabled=1
 auth_algs=1
-ignore_broadcast_ssid=0
 wpa=2
 wpa_passphrase=backsat2025
 wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP
+wpa_pairwise=CCMP
 rsn_pairwise=CCMP
 country_code=IT
+ieee80211n=1
+require_ht=0
+ht_capab=[HT40][SHORT-GI-20][DSSS_CCK-40]
 EOF
 
 sudo mv /tmp/hostapd.conf /etc/hostapd/hostapd.conf
@@ -133,22 +133,36 @@ reload_services() {
 start_services() {
     echo "Starting BackSat services..."
     reload_services
+    
+    # Preparazione interfaccia
+    sudo rfkill unblock wifi
+    sudo rfkill unblock wlan
+    sudo ip link set wlan0 down
+    sudo ip addr flush dev wlan0
+    sudo ip link set wlan0 up
+    sudo ip addr add 192.168.4.1/24 dev wlan0
+    sleep 2
+    
+    # Avvio servizi
     sudo systemctl start dnsmasq
     sleep 2
-    sudo systemctl start hostapd
+    sudo hostapd -B /etc/hostapd/hostapd.conf
     sleep 2
     sudo systemctl start backsat
     sleep 2
     sudo systemctl start nginx
+    
     echo "All services started. Wait 30 seconds before connecting."
+    echo "If connection fails, try: backsat wifi-restart"
 }
 
 stop_services() {
     echo "Stopping BackSat services..."
     sudo systemctl stop nginx
     sudo systemctl stop backsat
-    sudo systemctl stop hostapd
+    sudo killall hostapd
     sudo systemctl stop dnsmasq
+    sudo ip link set wlan0 down
 }
 
 restart_wifi() {
@@ -156,6 +170,7 @@ restart_wifi() {
     # Stop services
     sudo systemctl stop hostapd
     sudo systemctl stop dnsmasq
+    sudo killall hostapd
     
     # Reset Wi-Fi
     sudo rfkill unblock wifi
@@ -170,21 +185,22 @@ restart_wifi() {
     sudo ip addr add 192.168.4.1/24 dev wlan0
     sleep 2
     
-    # Verify hostapd configuration
-    echo "Verifying hostapd configuration..."
-    sudo hostapd -dd /etc/hostapd/hostapd.conf -P /run/hostapd.pid -B
+    # Start hostapd directly
+    echo "Starting hostapd..."
+    sudo hostapd -B /etc/hostapd/hostapd.conf
     if [ $? -ne 0 ]; then
-        echo "Error: hostapd configuration test failed"
+        echo "Error: hostapd failed to start"
+        echo "Trying debug mode..."
+        sudo hostapd -dd /etc/hostapd/hostapd.conf
         return 1
     fi
     
-    # Restart services
-    sudo systemctl restart dnsmasq
+    # Start dnsmasq
     sleep 2
-    sudo systemctl restart hostapd
+    sudo systemctl restart dnsmasq
     
     echo "Wi-Fi services restarted. Wait 30 seconds and try connecting again."
-    echo "If connection still fails, try: backsat-debug"
+    echo "If connection still fails, try: backsat debug"
 }
 
 update_backsat() {
@@ -192,18 +208,42 @@ update_backsat() {
     curl -s https://raw.githubusercontent.com/RudyDeana/BackSat/refs/heads/main/install.sh | bash
 }
 
+debug_wifi() {
+    echo "=== BackSat Wi-Fi Debug ==="
+    echo -e "\n[1/6] Checking Wi-Fi interface..."
+    iwconfig wlan0
+    
+    echo -e "\n[2/6] Checking hostapd process..."
+    ps aux | grep hostapd
+    
+    echo -e "\n[3/6] Checking hostapd configuration..."
+    cat /etc/hostapd/hostapd.conf
+    
+    echo -e "\n[4/6] Checking dnsmasq configuration..."
+    cat /etc/dnsmasq.conf
+    
+    echo -e "\n[5/6] Checking network interface..."
+    ip addr show wlan0
+    
+    echo -e "\n[6/6] Checking system logs..."
+    journalctl -n 50 | grep -i "hostapd\|dnsmasq"
+}
+
 show_status() {
     echo "=== BackSat Services Status ==="
-    echo -e "\n[1/4] hostapd status:"
-    systemctl status hostapd | cat
-    echo -e "\n[2/4] dnsmasq status:"
+    echo -e "\n[1/5] hostapd process:"
+    ps aux | grep hostapd
+    
+    echo -e "\n[2/5] dnsmasq status:"
     systemctl status dnsmasq | cat
-    echo -e "\n[3/4] backsat status:"
+    
+    echo -e "\n[3/5] backsat status:"
     systemctl status backsat | cat
-    echo -e "\n[4/4] nginx status:"
+    
+    echo -e "\n[4/5] nginx status:"
     systemctl status nginx | cat
     
-    echo -e "\nNetwork Interface:"
+    echo -e "\n[5/5] Network Interface:"
     ip addr show wlan0
 }
 
@@ -225,6 +265,9 @@ case "$1" in
     "wifi-restart")
         restart_wifi
         ;;
+    "debug")
+        debug_wifi
+        ;;
     "status")
         show_status
         ;;
@@ -243,14 +286,11 @@ case "$1" in
         echo ""
         echo "Network Commands:"
         echo "  wifi-restart - Reset and restart Wi-Fi services"
+        echo "  debug        - Show detailed Wi-Fi debug information"
         echo ""
         echo "System Commands:"
         echo "  update       - Update BackSat OS from GitHub"
         echo "  reload       - Reload systemd services"
-        echo ""
-        echo "Debug Commands:"
-        echo "  backsat-test   - Test connectivity"
-        echo "  backsat-debug  - Show Wi-Fi diagnostic"
         echo ""
         echo "For more information visit:"
         echo "  https://github.com/RudyDeana/BackSat"
