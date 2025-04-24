@@ -7,20 +7,16 @@ echo "   BackSat OS - The Backpack Satellite"
 echo "====================================================="
 echo "Installation in progress..."
 echo ""
+
 # System update
 echo "[1/8] Updating system..."
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y git dnsmasq hostapd python3-pip nginx sqlite3 python3-flask jq wget unzip
+sudo apt install -y git dnsmasq hostapd python3-pip nginx sqlite3 python3-flask jq wget unzip network-manager
+
 # Creating BackSat directories
 echo "[2/8] Creating BackSat directory structure..."
-sudo mkdir -p /opt/backsat
-sudo mkdir -p /opt/backsat/database
-sudo mkdir -p /opt/backsat/files
-sudo mkdir -p /opt/backsat/dashboard
-sudo mkdir -p /opt/backsat/logs
-sudo mkdir -p /opt/backsat/addons
-sudo mkdir -p /opt/backsat/config
-sudo mkdir -p /opt/backsat/bin
+sudo mkdir -p /opt/backsat/{database,files,dashboard,logs,addons,config,bin}
+
 # Wi-Fi hotspot configuration
 echo "[3/8] Creating default Wi-Fi configuration..."
 # Create configuration file
@@ -44,30 +40,70 @@ cat > /tmp/backsat_config.json << EOF
 EOF
 sudo mv /tmp/backsat_config.json /opt/backsat/config/config.json
 
-# Creating hostapd and dnsmasq templates
-cat > /opt/backsat/config/hostapd.template << EOF
+# Configurazione NetworkManager
+echo "[4/8] Configuring Wi-Fi Access Point..."
+cat > /tmp/backsat-ap << EOF
+[connection]
+id=BackSat-AP
+uuid=$(uuidgen)
+type=wifi
+interface-name=wlan0
+permissions=
+
+[wifi]
+band=bg
+mode=ap
+ssid=BackSat-OS
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk=backsat2025
+
+[ipv4]
+method=shared
+address1=192.168.4.1/24
+
+[ipv6]
+method=ignore
+EOF
+
+sudo mv /tmp/backsat-ap /etc/NetworkManager/system-connections/BackSat-AP
+sudo chmod 600 /etc/NetworkManager/system-connections/BackSat-AP
+
+# Configurazione hostapd
+sudo mkdir -p /etc/hostapd
+cat > /tmp/hostapd.conf << EOF
 interface=wlan0
 driver=nl80211
-ssid={{SSID}}
+ssid=BackSat-OS
 hw_mode=g
-channel={{CHANNEL}}
+channel=7
 wmm_enabled=0
 macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
 wpa=2
-wpa_passphrase={{PASSWORD}}
+wpa_passphrase=backsat2025
 wpa_key_mgmt=WPA-PSK
 wpa_pairwise=TKIP
 rsn_pairwise=CCMP
+country_code=IT
 EOF
 
-cat > /opt/backsat/config/dnsmasq.template << EOF
+sudo mv /tmp/hostapd.conf /etc/hostapd/hostapd.conf
+sudo chmod 600 /etc/hostapd/hostapd.conf
+
+# Configurare il paese per il Wi-Fi
+sudo raspi-config nonint do_wifi_country IT
+
+# Configurazione dnsmasq
+cat > /tmp/dnsmasq.conf << EOF
 interface=wlan0
 dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
 domain=local
 address=/backsat.local/192.168.4.1
 EOF
+sudo mv /tmp/dnsmasq.conf /etc/dnsmasq.conf
 
 # Configurazione iniziale dell'interfaccia di rete
 echo "Configuring network interface..."
@@ -766,113 +802,45 @@ echo ""
 echo "Your BackSat node is ready."
 echo ""
 echo "Main commands:"
-echo "  backsat start    - Start BackSat services"
-echo "  backsat stop     - Stop BackSat services"
-echo "  backsat restart  - Restart BackSat services"
-echo "  backsat wifi-config <new-ssid> <new-password>  - Change Wi-Fi configuration"
-echo "  backsat update   - Update BackSat to the latest version"
+echo "  backsat start      - Start BackSat services"
+echo "  backsat stop       - Stop BackSat services"
+echo "  backsat restart    - Restart BackSat services"
+echo "  backsat debug      - Show diagnostic information"
 echo ""
+echo "After startup:"
+echo "1. Connect to the 'BackSat-OS' Wi-Fi network (password: backsat2025)"
+echo "2. Access the dashboard: http://backsat.local"
+echo ""
+echo "Good journey with BackSat!"
 
-# Funzione di diagnostica Wi-Fi
-check_wifi_status() {
-    echo "=== Diagnostica Wi-Fi ==="
-    echo "1. Controllo interfaccia wireless..."
-    iwconfig
-    
-    echo -e "\n2. Stato dei servizi..."
-    systemctl status hostapd | cat
-    systemctl status dnsmasq | cat
-    
-    echo -e "\n3. Controllo configurazione hostapd..."
-    cat /etc/hostapd/hostapd.conf
-    
-    echo -e "\n4. Controllo rfkill..."
-    rfkill list all
-    
-    echo -e "\n5. Controllo interfacce di rete..."
-    ip addr show
-    
-    echo -e "\n6. Controllo driver Wi-Fi..."
-    lsmod | grep -E '(^|[^a-zA-Z0-9_])wifi|wlan'
-}
-
-# Prima di avviare i servizi, assicuriamoci che tutto sia configurato correttamente
-echo "[Configurazione Wi-Fi] Preparazione interfaccia wireless..."
-sudo ip link set wlan0 down
-sudo ip addr flush dev wlan0
-
-# Configurazione wlan0
-sudo ip link set wlan0 up
-sudo ip addr add 192.168.4.1/24 dev wlan0
-
-# Verifica che il driver nl80211 sia caricato
-if ! lsmod | grep -q cfg80211; then
-    echo "Caricamento driver Wi-Fi..."
-    sudo modprobe cfg80211
-fi
-
-# Assicurarsi che hostapd usi l'interfaccia corretta
-sudo sed -i 's/^DAEMON_OPTS=.*/DAEMON_OPTS="-dd -B"/' /etc/default/hostapd
-
-# Riavvio completo dei servizi di rete
-echo "[Configurazione Wi-Fi] Riavvio servizi di rete..."
-sudo systemctl stop hostapd
-sudo systemctl stop dnsmasq
-sudo systemctl stop networking
-
-sudo systemctl unmask hostapd
-sudo systemctl enable hostapd
-sudo systemctl enable dnsmasq
-
-sudo rfkill unblock wifi
-sudo rfkill unblock wlan
-
-sudo systemctl start networking
-sudo systemctl start hostapd
-sudo systemctl start dnsmasq
-
-# Esegui diagnostica
-echo "[Configurazione Wi-Fi] Esecuzione diagnostica..."
-check_wifi_status
-
-# Alla fine dello script, dopo "Good journey with BackSat!"
-echo -e "\nPer diagnosticare problemi con il Wi-Fi, esegui:"
-echo "sudo /usr/local/bin/backsat wifi-debug"
-
-# Creiamo uno script di debug
-cat > /tmp/wifi-debug << 'EOF'
+# Creare lo script di debug separato
+echo "[8/8] Creating maintenance tools..."
+cat > /tmp/backsat-debug << 'EOF'
 #!/bin/bash
+
 check_wifi_status() {
     echo "=== Diagnostica Wi-Fi ==="
     echo "1. Controllo interfaccia wireless..."
     iwconfig
-    
     echo -e "\n2. Stato dei servizi..."
     systemctl status hostapd | cat
     systemctl status dnsmasq | cat
-    
     echo -e "\n3. Controllo configurazione hostapd..."
     cat /etc/hostapd/hostapd.conf
-    
     echo -e "\n4. Controllo rfkill..."
     rfkill list all
-    
     echo -e "\n5. Controllo interfacce di rete..."
     ip addr show
-    
-    echo -e "\n6. Controllo driver Wi-Fi..."
-    lsmod | grep -E '(^|[^a-zA-Z0-9_])wifi|wlan'
 }
 
 case "$1" in
     "restart")
         echo "Riavvio servizi Wi-Fi..."
-        sudo systemctl stop hostapd dnsmasq
         sudo rfkill unblock wifi
         sudo rfkill unblock wlan
-        sudo ip link set wlan0 down
-        sudo ip link set wlan0 up
-        sudo systemctl start hostapd dnsmasq
+        sudo systemctl restart NetworkManager
+        sudo systemctl restart hostapd
+        sudo systemctl restart dnsmasq
         ;;
     *)
         check_wifi_status
@@ -880,8 +848,8 @@ case "$1" in
 esac
 EOF
 
-sudo mv /tmp/wifi-debug /usr/local/bin/backsat-wifi-debug
-sudo chmod +x /usr/local/bin/backsat-wifi-debug
+sudo mv /tmp/backsat-debug /usr/local/bin/backsat-debug
+sudo chmod +x /usr/local/bin/backsat-debug
 
 # Avvio iniziale dei servizi
 echo "Starting initial services..."
@@ -901,91 +869,3 @@ echo "To see all available commands:"
 echo "  backsat help"
 echo ""
 echo "Good journey with BackSat!"
-
-# Configurazione NetworkManager
-echo "[Configurazione Wi-Fi] Configurazione NetworkManager..."
-cat > /tmp/backsat-ap << EOF
-[connection]
-id=BackSat-AP
-uuid=$(uuidgen)
-type=wifi
-interface-name=wlan0
-permissions=
-
-[wifi]
-band=bg
-mode=ap
-ssid=BackSat-OS
-
-[wifi-security]
-key-mgmt=wpa-psk
-psk=backsat2025
-
-[ipv4]
-method=shared
-address1=192.168.4.1/24
-
-[ipv6]
-method=ignore
-EOF
-
-sudo mv /tmp/backsat-ap /etc/NetworkManager/system-connections/BackSat-AP
-sudo chmod 600 /etc/NetworkManager/system-connections/BackSat-AP
-
-# Disabilitare la gestione automatica di wlan0 da parte di NetworkManager
-cat > /tmp/99-disable-wifi-auto << EOF
-[keyfile]
-unmanaged-devices=interface-name:wlan0
-EOF
-
-sudo mv /tmp/99-disable-wifi-auto /etc/NetworkManager/conf.d/99-disable-wifi-auto.conf
-
-# Riavviare NetworkManager
-sudo systemctl restart NetworkManager
-
-# Rimuovere eventuali connessioni esistenti su wlan0
-sudo nmcli device disconnect wlan0
-
-# Configurazione hostapd
-echo "[Configurazione Wi-Fi] Configurazione hostapd..."
-sudo mkdir -p /etc/hostapd
-cat > /tmp/hostapd.conf << EOF
-interface=wlan0
-driver=nl80211
-ssid=BackSat-OS
-hw_mode=g
-channel=7
-wmm_enabled=0
-macaddr_acl=0
-auth_algs=1
-ignore_broadcast_ssid=0
-wpa=2
-wpa_passphrase=backsat2025
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP
-rsn_pairwise=CCMP
-country_code=IT
-EOF
-
-sudo mv /tmp/hostapd.conf /etc/hostapd/hostapd.conf
-sudo chmod 600 /etc/hostapd/hostapd.conf
-
-# Configurare il paese per il Wi-Fi
-sudo raspi-config nonint do_wifi_country IT
-
-# Configurare l'interfaccia wlan0
-sudo ip link set wlan0 down
-sudo ip addr flush dev wlan0
-sudo ip link set wlan0 up
-
-# Riavviare i servizi
-echo "[Configurazione Wi-Fi] Riavvio servizi..."
-sudo systemctl unmask hostapd
-sudo systemctl enable hostapd
-sudo systemctl enable dnsmasq
-
-sudo rfkill unblock wifi
-sudo rfkill unblock wlan
-
-sudo systemctl restart dnsmasq
-sudo systemctl restart hostapd
