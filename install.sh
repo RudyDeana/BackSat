@@ -70,24 +70,32 @@ EOF
 sudo mv /tmp/backsat-ap /etc/NetworkManager/system-connections/BackSat-AP
 sudo chmod 600 /etc/NetworkManager/system-connections/BackSat-AP
 
-# Configurazione hostapd migliorata per Mac
+# Configurazione hostapd semplificata per massima compatibilità
 cat > /tmp/hostapd.conf << EOF
+# Interfaccia Wi-Fi
 interface=wlan0
+
+# Configurazione driver
 driver=nl80211
+
+# Configurazione base AP
 ssid=BackSat-OS
 hw_mode=g
-channel=7
-wmm_enabled=1
+channel=6
+beacon_int=100
+
+# Sicurezza base
 auth_algs=1
 wpa=2
 wpa_passphrase=backsat2025
 wpa_key_mgmt=WPA-PSK
 wpa_pairwise=CCMP
 rsn_pairwise=CCMP
-country_code=IT
-ieee80211n=1
-require_ht=0
-ht_capab=[HT40][SHORT-GI-20][DSSS_CCK-40]
+
+# Disabilitare caratteristiche avanzate
+wmm_enabled=0
+macaddr_acl=0
+ignore_broadcast_ssid=0
 EOF
 
 sudo mv /tmp/hostapd.conf /etc/hostapd/hostapd.conf
@@ -167,40 +175,66 @@ stop_services() {
 
 restart_wifi() {
     echo "Restarting Wi-Fi services..."
-    # Stop services
-    sudo systemctl stop hostapd
-    sudo systemctl stop dnsmasq
-    sudo killall hostapd
     
-    # Reset Wi-Fi
-    sudo rfkill unblock wifi
-    sudo rfkill unblock wlan
+    # Stop tutti i servizi
+    sudo systemctl stop hostapd dnsmasq
+    sudo killall hostapd 2>/dev/null
     
-    # Reset interface
-    sudo ip link set wlan0 down
-    sleep 2
-    sudo ip addr flush dev wlan0
-    sleep 2
-    sudo ip link set wlan0 up
-    sudo ip addr add 192.168.4.1/24 dev wlan0
+    # Reset completo Wi-Fi
+    sudo rfkill unblock all
+    sudo ifconfig wlan0 down
+    sudo ifconfig wlan0 up
     sleep 2
     
-    # Start hostapd directly
-    echo "Starting hostapd..."
-    sudo hostapd -B /etc/hostapd/hostapd.conf
-    if [ $? -ne 0 ]; then
-        echo "Error: hostapd failed to start"
-        echo "Trying debug mode..."
-        sudo hostapd -dd /etc/hostapd/hostapd.conf
-        return 1
+    # Configurazione IP statico
+    sudo ifconfig wlan0 192.168.4.1 netmask 255.255.255.0
+    sleep 2
+    
+    # Test configurazione hostapd
+    echo "Testing hostapd configuration..."
+    sudo hostapd -d /etc/hostapd/hostapd.conf &
+    HOSTAPD_PID=$!
+    sleep 5
+    
+    if ps -p $HOSTAPD_PID > /dev/null; then
+        echo "hostapd started successfully"
+        sudo kill $HOSTAPD_PID
+    else
+        echo "hostapd failed to start, trying backup configuration..."
+        # Configurazione di backup ultra-base
+        cat > /tmp/hostapd_backup.conf << EOB
+interface=wlan0
+driver=nl80211
+ssid=BackSat-OS
+hw_mode=g
+channel=6
+auth_algs=1
+wpa=2
+wpa_passphrase=backsat2025
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+EOB
+        sudo mv /tmp/hostapd_backup.conf /etc/hostapd/hostapd.conf
     fi
     
-    # Start dnsmasq
+    # Avvio finale dei servizi
+    echo "Starting services..."
+    sudo hostapd -B /etc/hostapd/hostapd.conf
     sleep 2
     sudo systemctl restart dnsmasq
     
-    echo "Wi-Fi services restarted. Wait 30 seconds and try connecting again."
-    echo "If connection still fails, try: backsat debug"
+    # Verifica finale
+    echo -e "\nNetwork configuration:"
+    ifconfig wlan0
+    echo -e "\nActive wireless networks:"
+    iwconfig wlan0
+    echo -e "\nRunning processes:"
+    ps aux | grep hostapd | grep -v grep
+    
+    echo -e "\nWi-Fi services restarted. The network should be available in 30 seconds."
+    echo "Network name: BackSat-OS"
+    echo "Password: backsat2025"
+    echo "If connection fails, run: backsat debug"
 }
 
 update_backsat() {
@@ -210,23 +244,36 @@ update_backsat() {
 
 debug_wifi() {
     echo "=== BackSat Wi-Fi Debug ==="
-    echo -e "\n[1/6] Checking Wi-Fi interface..."
-    iwconfig wlan0
     
-    echo -e "\n[2/6] Checking hostapd process..."
-    ps aux | grep hostapd
+    echo -e "\n[1/8] Kernel Wi-Fi modules:"
+    lsmod | grep -E 'wifi|wlan|cfg80211|mac80211'
     
-    echo -e "\n[3/6] Checking hostapd configuration..."
+    echo -e "\n[2/8] RF Kill status:"
+    sudo rfkill list all
+    
+    echo -e "\n[3/8] Network interfaces:"
+    ifconfig -a
+    
+    echo -e "\n[4/8] Wireless interfaces:"
+    iwconfig
+    
+    echo -e "\n[5/8] hostapd configuration:"
     cat /etc/hostapd/hostapd.conf
     
-    echo -e "\n[4/6] Checking dnsmasq configuration..."
-    cat /etc/dnsmasq.conf
+    echo -e "\n[6/8] Running processes:"
+    ps aux | grep -E 'hostapd|dnsmasq' | grep -v grep
     
-    echo -e "\n[5/6] Checking network interface..."
-    ip addr show wlan0
-    
-    echo -e "\n[6/6] Checking system logs..."
+    echo -e "\n[7/8] System logs:"
     journalctl -n 50 | grep -i "hostapd\|dnsmasq"
+    
+    echo -e "\n[8/8] Network routing:"
+    netstat -rn
+    
+    echo -e "\nTo restart Wi-Fi completely:"
+    echo "1. Run: backsat stop"
+    echo "2. Wait 10 seconds"
+    echo "3. Run: backsat wifi-restart"
+    echo "4. Wait 30 seconds before trying to connect"
 }
 
 show_status() {
