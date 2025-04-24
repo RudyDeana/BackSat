@@ -173,202 +173,64 @@ sudo systemctl restart dnsmasq
 
 # BackSat control script
 echo "[4/8] Creating BackSat control script..."
-cat > /tmp/backsat << EOF
+cat > /tmp/backsat << 'EOF'
 #!/bin/bash
-# BackSat - Main control script
-BACKSAT_DIR="/opt/backsat"
-CONFIG_FILE="\$BACKSAT_DIR/config/config.json"
-# Function to generate configuration files from templates
-generate_config_files() {
-  # Read from configuration
-  SSID=\$(jq -r '.wifi.ssid' \$CONFIG_FILE)
-  PASSWORD=\$(jq -r '.wifi.password' \$CONFIG_FILE)
-  CHANNEL=\$(jq -r '.wifi.channel' \$CONFIG_FILE)
-  
-  # Generate hostapd.conf
-  sed "s/{{SSID}}/\$SSID/g; s/{{PASSWORD}}/\$PASSWORD/g; s/{{CHANNEL}}/\$CHANNEL/g" \
-    \$BACKSAT_DIR/config/hostapd.template > /etc/hostapd/hostapd.conf
-  
-  # Copy dnsmasq.conf
-  cp \$BACKSAT_DIR/config/dnsmasq.template /etc/dnsmasq.conf
-  
-  echo "Network configuration generated with SSID: \$SSID"
-}
-# Function to start services
-start_services() {
-  echo "Starting BackSat services..."
-  
-  # Generate updated configurations
-  generate_config_files
-  
-  # Restart network services
-  systemctl restart hostapd
-  systemctl restart dnsmasq
-  
-  # Start dashboard
-  systemctl restart backsat
-  systemctl restart nginx
-  
-  echo "BackSat OS started! Connect to the Wi-Fi network to access."
-}
-# Function to stop services
-stop_services() {
-  echo "Stopping BackSat services..."
-  systemctl stop hostapd
-  systemctl stop dnsmasq
-  systemctl stop backsat
-  echo "BackSat OS stopped."
-}
-# Function to modify SSID and password
-change_wifi() {
-  if [ -z "\$1" ] || [ -z "\$2" ]; then
-    echo "Usage: backsat wifi-config <new-ssid> <new-password>"
-    return 1
-  fi
-  
-  # Update JSON configuration file
-  TMP_FILE="\$(mktemp)"
-  jq ".wifi.ssid = \"\$1\" | .wifi.password = \"\$2\"" \$CONFIG_FILE > \$TMP_FILE
-  mv \$TMP_FILE \$CONFIG_FILE
-  
-  echo "Wi-Fi configuration updated with SSID: \$1"
-  echo "To apply changes run: backsat restart"
-}
-# Update function
+
 update_backsat() {
-  echo "Updating BackSat OS..."
-  
-  # Backup current configuration
-  cp \$CONFIG_FILE \$BACKSAT_DIR/config/config.backup.json
-  
-  # Download latest version from repository
-  TMP_DIR="\$(mktemp -d)"
-  wget -q https://github.com/backsatos/installer/archive/main.zip -O \$TMP_DIR/backsat.zip
-  
-  # Extract and update
-  unzip -q \$TMP_DIR/backsat.zip -d \$TMP_DIR
-  cp -r \$TMP_DIR/installer-main/dashboard/* \$BACKSAT_DIR/dashboard/
-  cp -r \$TMP_DIR/installer-main/bin/* \$BACKSAT_DIR/bin/
-  
-  # Update version in config
-  NEW_VERSION=\$(cat \$TMP_DIR/installer-main/version)
-  TMP_FILE="\$(mktemp)"
-  jq ".system.version = \"\$NEW_VERSION\"" \$CONFIG_FILE > \$TMP_FILE
-  mv \$TMP_FILE \$CONFIG_FILE
-  
-  # Cleanup
-  rm -rf \$TMP_DIR
-  
-  echo "BackSat OS updated to version \$NEW_VERSION"
-  echo "To apply changes run: backsat restart"
+    echo "Updating BackSat OS..."
+    curl -s https://raw.githubusercontent.com/RudyDeana/BackSat/refs/heads/main/install.sh | bash
 }
-# Add-on management
-list_addons() {
-  echo "Available add-ons:"
-  ls -1 \$BACKSAT_DIR/addons/available/ 2>/dev/null || echo "No add-ons available"
-  
-  echo -e "\nActive add-ons:"
-  ENABLED=\$(jq -r '.addons.enabled[]' \$CONFIG_FILE 2>/dev/null)
-  if [ -z "\$ENABLED" ]; then
-    echo "No active add-ons"
-  else
-    echo "\$ENABLED"
-  fi
+
+restart_wifi() {
+    echo "Restarting Wi-Fi services..."
+    sudo rfkill unblock wifi
+    sudo rfkill unblock wlan
+    sudo systemctl restart NetworkManager
+    sudo ip link set wlan0 down
+    sudo ip addr flush dev wlan0
+    sudo ip link set wlan0 up
+    sudo systemctl restart hostapd
+    sudo systemctl restart dnsmasq
+    echo "Wi-Fi services restarted. Wait 30 seconds and try connecting again."
 }
-install_addon() {
-  if [ -z "\$1" ]; then
-    echo "Usage: backsat addon-install <addon-name>"
-    return 1
-  fi
-  
-  # Verify add-on existence
-  if [ ! -d "\$BACKSAT_DIR/addons/available/\$1" ]; then
-    echo "Add-on '\$1' not found."
-    echo "Downloading from repository..."
-    
-    # Download add-on from repository
-    TMP_DIR="\$(mktemp -d)"
-    wget -q "https://github.com/backsatos/addons/archive/\$1.zip" -O \$TMP_DIR/addon.zip
-    
-    if [ \$? -ne 0 ]; then
-      echo "Add-on '\$1' not found in repository."
-      rm -rf \$TMP_DIR
-      return 1
-    fi
-    
-    # Create directory if it doesn't exist
-    mkdir -p \$BACKSAT_DIR/addons/available/
-    
-    # Extract add-on
-    unzip -q \$TMP_DIR/addon.zip -d \$TMP_DIR
-    cp -r \$TMP_DIR/addons-\$1 \$BACKSAT_DIR/addons/available/\$1
-    
-    # Cleanup
-    rm -rf \$TMP_DIR
-  fi
-  
-  # Activate add-on
-  TMP_FILE="\$(mktemp)"
-  jq ".addons.enabled += [\"\$1\"]" \$CONFIG_FILE > \$TMP_FILE
-  mv \$TMP_FILE \$CONFIG_FILE
-  
-  # Run installation script if present
-  if [ -f "\$BACKSAT_DIR/addons/available/\$1/install.sh" ]; then
-    bash "\$BACKSAT_DIR/addons/available/\$1/install.sh"
-  fi
-  
-  echo "Add-on '\$1' installed. Restart BackSat to activate it: backsat restart"
-}
-# Help menu
-show_help() {
-  echo "BackSat OS - The Backpack Satellite"
-  echo ""
-  echo "Usage: backsat <command>"
-  echo ""
-  echo "Available commands:"
-  echo "  start         - Start BackSat services"
-  echo "  stop          - Stop BackSat services"
-  echo "  restart       - Restart BackSat services"
-  echo "  status        - Show services status"
-  echo "  wifi-config   - Change SSID and password (backsat wifi-config <ssid> <password>)"
-  echo "  update        - Update BackSat to the latest version"
-  echo "  addon-list    - List available and active add-ons"
-  echo "  addon-install - Install an add-on (backsat addon-install <addon-name>)"
-  echo "  help          - Show this help message"
-}
-# Argument handling
-case "\$1" in
-  start)
-    start_services
-    ;;
-  stop)
-    stop_services
-    ;;
-  restart)
-    stop_services
-    sleep 2
-    start_services
-    ;;
-  status)
-    systemctl status hostapd dnsmasq backsat nginx
-    ;;
-  wifi-config)
-    change_wifi "\$2" "\$3"
-    ;;
-  update)
-    update_backsat
-    ;;
-  addon-list)
-    list_addons
-    ;;
-  addon-install)
-    install_addon "\$2"
-    ;;
-  *)
-    show_help
-    ;;
+
+case "$1" in
+    "start")
+        sudo systemctl start hostapd dnsmasq backsat nginx
+        ;;
+    "stop")
+        sudo systemctl stop hostapd dnsmasq backsat nginx
+        ;;
+    "restart")
+        sudo systemctl restart hostapd dnsmasq backsat nginx
+        ;;
+    "update")
+        update_backsat
+        ;;
+    "wifi-restart")
+        restart_wifi
+        ;;
+    "status")
+        echo "=== BackSat Services Status ==="
+        systemctl status hostapd dnsmasq backsat nginx | cat
+        ;;
+    *)
+        echo "BackSat OS Control"
+        echo "Usage: backsat <command>"
+        echo ""
+        echo "Commands:"
+        echo "  start        - Start all services"
+        echo "  stop         - Stop all services"
+        echo "  restart      - Restart all services"
+        echo "  update       - Update BackSat OS"
+        echo "  wifi-restart - Restart Wi-Fi services"
+        echo "  status       - Show services status"
+        echo ""
+        echo "Debug commands:"
+        echo "  backsat-test   - Test connectivity"
+        echo "  backsat-debug  - Show Wi-Fi diagnostic"
+        ;;
 esac
-exit 0
 EOF
 sudo mv /tmp/backsat /usr/local/bin/backsat
 sudo chmod +x /usr/local/bin/backsat
@@ -874,12 +736,17 @@ echo ""
 
 # Aggiungere al messaggio finale
 echo "For connection issues:"
-echo "  backsat-test     - Test connectivity"
-echo "  backsat-debug    - Show Wi-Fi diagnostic"
+echo "  backsat wifi-restart  - Restart Wi-Fi services"
+echo "  backsat-test         - Test connectivity"
+echo "  backsat-debug        - Show Wi-Fi diagnostic"
+echo ""
+echo "To update BackSat:"
+echo "  backsat update"
 echo ""
 echo "After startup:"
 echo "1. Connect to the 'BackSat-OS' Wi-Fi network (password: backsat2025)"
-echo "2. Wait about 30 seconds for services to start"
+echo "2. If connection fails, wait 30 seconds and try:"
+echo "   backsat wifi-restart"
 echo "3. Access the dashboard: http://backsat.local or http://192.168.4.1"
 echo ""
 echo "Good journey with BackSat!"
