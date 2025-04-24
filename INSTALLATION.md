@@ -32,11 +32,13 @@ http://backsat.local or http://"device-ip"
 🧪 BackSat Lite (Coming Soon)
 
 BackSat Lite is the minimal firmware-based version for:
+
 	•	ESP32
-	•	Arduino with LoRa
+	•	Arduino with Wi-Fi conection
 	•	Meshtastic boards
 
 It will support:
+
 	•	Serial communication
 	•	Beaconing
 	•	Low-power messaging
