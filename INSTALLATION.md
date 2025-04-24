@@ -17,7 +17,7 @@ This guide helps you install **BackSat OS** on a Raspberry Pi or other Linux-com
 ```bash
 curl -s https://raw.githubusercontent.com/<your-username>/BackSat/main/backsat-install-script.sh | bash
 
-```bash
+```
 
 This will:
 	•	Install mesh tools and dashboard
