@@ -1,53 +1,64 @@
-# BackSat
+# 🌐 BackSat - The Backpack Satellite
 
-# BackSat - The Backpack Satellite
+BackSat is an open-source project that transforms any compatible device into an independent communication node — without SIM cards, cell towers, or internet. Think of it as a **personal terrestrial satellite** that fits in your backpack.
 
-BackSat is an open-source project that transforms any compatible device into an independent communication node without requiring SIM cards, cell towers or internet connection. It's designed to work offline in emergency situations, remote missions, or simply to create resilient and secure local networks.
+---
 
-The core idea is: every device is a node. Like a "terrestrial satellite in your backpack".
+## 📡 What is BackSat?
 
+BackSat is the first personal terrestrial satellite. It doesn’t fly — but it does the work of one:  
+It creates networks, exchanges data, and communicates, all **offline**.
 
+---
 
-## What is BackSat?
+## 🚀 Main Features
 
-BackSat is the first personal terrestrial satellite. It doesn't fly, but does the work of a satellite: creates networks, exchanges data, communicates, all without internet.
+- 🔁 **Decentralized Mesh Network**  
+  - Creates ad-hoc mesh between nearby BackSats  
+  - Works during blackouts  
+  - No central server required  
 
-## Main Features
+- 🕵️‍♂️ **Private or Public Mode**  
+  - *Private*: just you and your devices  
+  - *Public*: communicate with other BackSats in range  
 
-- **Decentralized Mesh Network**
-  - Automatically creates a local network between nearby BackSats
-  - Works even during total blackouts
-  - No central server
+- 💻 **Device Compatibility**  
+  - Raspberry Pi, laptop, portable router, etc.  
+  - Only requirement: Wi-Fi + BackSat OS  
 
-- **Private or Public Mode**
-  - Private: just you and your devices
-  - Public: communicate with other active BackSats in the area
-
-- **Compatible with any device**
-  - Computer, Raspberry Pi, tablet, portable router, etc.
-  - Only requires: a Wi-Fi card + BackSat OS
-
-- **Custom Operating System**
-  - Automatic network boot
-  - Local web dashboard (browser-accessible interface)
-  - Included functions:
+- 🖥 **Custom Operating System**
+  - Network auto-boot  
+  - Web dashboard (offline access via browser)  
+  - Built-in tools:
     - P2P Chat
-    - File sharing
-    - Notifications of other detected nodes
-    - Automatic backup
-    - Map of active nodes
-    - SOS sending
+    - File Sharing
+    - Node Discovery
+    - Backup System
+    - SOS Alerts
+    - Node Map
 
-## Two Versions of BackSat
+---
 
-### 🖥 BackSat OS
-- Works on Raspberry Pi, mini PC, laptop
-- Includes a custom operating system with Wi-Fi hotspot and local web dashboard
-- Can be flashed to a microSD card
-- Dashboard enables offline chat, file sending, document access, emergency tools, orientation, and more
-- Can manage mesh connections with other BackSat nodes or serve as the main network node
+## 🧩 Versions of BackSat
 
-### 🔌 BackSat Lite
-- Works on compatible microcontrollers (ESP32, Arduino with LoRa, Meshtastic devices)
-- Connects via serial or Wi-Fi to an external interface (PC, smartphone)
-- Sends and receives messages, signals
+### 🖥 [BackSat OS](#-installation-backsat-os)
+- For Raspberry Pi, mini PC, laptop
+- Complete OS image with dashboard
+- Local Wi-Fi hotspot
+- Run mesh, dashboard, tools directly
+
+### 🔌 [BackSat Lite](#-backsat-lite)
+- For microcontrollers (ESP32, Arduino + LoRa, Meshtastic)
+- Connect via serial or Wi-Fi to external interface
+- Lightweight message + signal system
+
+---
+
+## ⚙️ Installation (BackSat OS)
+
+You can install BackSat OS on any device that supports Linux.
+
+### 🔧 Quick install using script
+
+```bash
+curl -s https://raw.githubusercontent.com/<tuo-username>/BackSat/main/backsat-install-script.sh | bash
