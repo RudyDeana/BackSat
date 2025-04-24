@@ -96,13 +96,31 @@ sudo chmod 600 /etc/hostapd/hostapd.conf
 # Configurare il paese per il Wi-Fi
 sudo raspi-config nonint do_wifi_country IT
 
-# Configurazione dnsmasq
+# Configurazione dnsmasq più robusta
 cat > /tmp/dnsmasq.conf << EOF
+# Interfaccia Wi-Fi
 interface=wlan0
+# Non utilizzare /etc/resolv.conf
+no-resolv
+# Server DNS di Google come fallback
+server=8.8.8.8
+server=8.8.4.4
+# Range DHCP
 dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
+# Gateway
+dhcp-option=3,192.168.4.1
+# DNS
+dhcp-option=6,192.168.4.1
+# Dominio locale
+local=/local/
 domain=local
+# Risoluzione nome BackSat
 address=/backsat.local/192.168.4.1
+# Log per debug
+log-queries
+log-dhcp
 EOF
+
 sudo mv /tmp/dnsmasq.conf /etc/dnsmasq.conf
 
 # Configurazione iniziale dell'interfaccia di rete
@@ -739,40 +757,86 @@ cat > /opt/backsat/dashboard/templates/index.html << EOF
 </body>
 </html>
 EOF
-# Configure Nginx as reverse proxy
-echo "[6/8] Configuring Nginx as reverse proxy..."
+# Configurazione Nginx migliorata
 cat > /tmp/backsat << EOF
 server {
     listen 80;
+    listen [::]:80;
+    
     server_name backsat.local;
+    
+    access_log /var/log/nginx/backsat.access.log;
+    error_log /var/log/nginx/backsat.error.log;
+
     location / {
         proxy_pass http://127.0.0.1:5000;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Timeouts più lunghi per debug
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
 }
 EOF
+
 sudo mv /tmp/backsat /etc/nginx/sites-available/backsat
-sudo ln -s /etc/nginx/sites-available/backsat /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/backsat /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
-# BackSat startup script
-echo "[7/8] Configuring systemd service for BackSat..."
+
+# Configurazione systemd per Flask
 cat > /tmp/backsat.service << EOF
 [Unit]
 Description=BackSat OS Dashboard
 After=network.target
+
 [Service]
 User=root
 WorkingDirectory=/opt/backsat/dashboard
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=/usr/bin/python3 app.py
 Restart=always
+RestartSec=5
+
 [Install]
 WantedBy=multi-user.target
 EOF
+
 sudo mv /tmp/backsat.service /etc/systemd/system/backsat.service
-sudo systemctl enable backsat.service
-sudo systemctl enable hostapd
-sudo systemctl enable dnsmasq
+
+# Aggiungere script di test connettività
+cat > /tmp/backsat-test << 'EOF'
+#!/bin/bash
+
+echo "=== Test Connettività BackSat ==="
+echo "1. Test DNS locale..."
+nslookup backsat.local 192.168.4.1
+
+echo -e "\n2. Test connessione web..."
+curl -v http://backsat.local
+
+echo -e "\n3. Status servizi web..."
+systemctl status nginx
+systemctl status backsat
+
+echo -e "\n4. Log nginx..."
+tail -n 20 /var/log/nginx/error.log
+
+echo -e "\n5. Log applicazione..."
+journalctl -u backsat -n 20
+EOF
+
+sudo mv /tmp/backsat-test /usr/local/bin/backsat-test
+sudo chmod +x /usr/local/bin/backsat-test
+
 # Configure permissions
 echo "[8/8] Configuring final permissions..."
 sudo chown -R pi:pi /opt/backsat
@@ -807,65 +871,15 @@ echo "  backsat stop       - Stop BackSat services"
 echo "  backsat restart    - Restart BackSat services"
 echo "  backsat debug      - Show diagnostic information"
 echo ""
-echo "After startup:"
-echo "1. Connect to the 'BackSat-OS' Wi-Fi network (password: backsat2025)"
-echo "2. Access the dashboard: http://backsat.local"
-echo ""
-echo "Good journey with BackSat!"
 
-# Creare lo script di debug separato
-echo "[8/8] Creating maintenance tools..."
-cat > /tmp/backsat-debug << 'EOF'
-#!/bin/bash
-
-check_wifi_status() {
-    echo "=== Diagnostica Wi-Fi ==="
-    echo "1. Controllo interfaccia wireless..."
-    iwconfig
-    echo -e "\n2. Stato dei servizi..."
-    systemctl status hostapd | cat
-    systemctl status dnsmasq | cat
-    echo -e "\n3. Controllo configurazione hostapd..."
-    cat /etc/hostapd/hostapd.conf
-    echo -e "\n4. Controllo rfkill..."
-    rfkill list all
-    echo -e "\n5. Controllo interfacce di rete..."
-    ip addr show
-}
-
-case "$1" in
-    "restart")
-        echo "Riavvio servizi Wi-Fi..."
-        sudo rfkill unblock wifi
-        sudo rfkill unblock wlan
-        sudo systemctl restart NetworkManager
-        sudo systemctl restart hostapd
-        sudo systemctl restart dnsmasq
-        ;;
-    *)
-        check_wifi_status
-        ;;
-esac
-EOF
-
-sudo mv /tmp/backsat-debug /usr/local/bin/backsat-debug
-sudo chmod +x /usr/local/bin/backsat-debug
-
-# Avvio iniziale dei servizi
-echo "Starting initial services..."
-sudo systemctl restart dnsmasq
-sudo systemctl restart hostapd
-sudo systemctl restart backsat
-sudo systemctl restart nginx
-
-echo "To start BackSat now, run:"
-echo "  backsat start"
+# Aggiungere al messaggio finale
+echo "For connection issues:"
+echo "  backsat-test     - Test connectivity"
+echo "  backsat-debug    - Show Wi-Fi diagnostic"
 echo ""
 echo "After startup:"
 echo "1. Connect to the 'BackSat-OS' Wi-Fi network (password: backsat2025)"
-echo "2. Access the dashboard: http://backsat.local"
-echo ""
-echo "To see all available commands:"
-echo "  backsat help"
+echo "2. Wait about 30 seconds for services to start"
+echo "3. Access the dashboard: http://backsat.local or http://192.168.4.1"
 echo ""
 echo "Good journey with BackSat!"
