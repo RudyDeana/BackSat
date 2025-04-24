@@ -6,7 +6,7 @@ BackSat is an open-source project that transforms any compatible device into an 
 
 The core idea is: every device is a node. Like a "terrestrial satellite in your backpack".
 
-![BackSat Logo](docs/images/backsat-logo.png)
+
 
 ## What is BackSat?
 
