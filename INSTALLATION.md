@@ -25,4 +25,4 @@ This will:
 	•	Enable autostart and services
 
 You can then access the dashboard at:
-http://backsat.local or http://<device-ip>
+http://backsat.local or http://"device-ip"
