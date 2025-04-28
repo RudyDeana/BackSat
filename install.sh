@@ -321,6 +321,61 @@ case "$1" in
     "reload")
         reload_services
         ;;
+    "check")
+        echo "=== BackSat Installation Check ==="
+        echo -e "\n[1/7] Checking directories..."
+        for dir in database files dashboard logs addons config bin; do
+            if [ -d "/opt/backsat/$dir" ]; then
+                echo "✓ /opt/backsat/$dir exists"
+            else
+                echo "✗ /opt/backsat/$dir missing!"
+            fi
+        done
+        
+        echo -e "\n[2/7] Checking core files..."
+        for file in "/opt/backsat/dashboard/app.py" "/opt/backsat/dashboard/templates/index.html" "/opt/backsat/config/config.json"; do
+            if [ -f "$file" ]; then
+                echo "✓ $file exists"
+            else
+                echo "✗ $file missing!"
+            fi
+        done
+        
+        echo -e "\n[3/7] Checking services..."
+        for service in nginx hostapd dnsmasq backsat; do
+            if systemctl is-enabled $service >/dev/null 2>&1; then
+                echo "✓ $service is enabled"
+            else
+                echo "✗ $service not enabled!"
+            fi
+        done
+        
+        echo -e "\n[4/7] Checking network configuration..."
+        if [ -f "/etc/hostapd/hostapd.conf" ]; then
+            echo "✓ hostapd configuration exists"
+        else
+            echo "✗ hostapd configuration missing!"
+        fi
+        
+        echo -e "\n[5/7] Checking database..."
+        if [ -f "/opt/backsat/database/backsat.db" ]; then
+            echo "✓ Database file exists"
+        else
+            echo "✗ Database file missing!"
+        fi
+        
+        echo -e "\n[6/7] Checking permissions..."
+        for file in "/opt/backsat/dashboard/app.py" "/opt/backsat/dashboard/templates/index.html"; do
+            if [ "$(stat -c %a $file 2>/dev/null)" = "644" ]; then
+                echo "✓ $file has correct permissions"
+            else
+                echo "✗ $file has wrong permissions!"
+            fi
+        done
+        
+        echo -e "\n[7/7] Network interface status..."
+        ip link show wlan0
+        ;;
     *)
         echo "BackSat OS Control"
         echo "Usage: backsat <command>"
@@ -338,516 +393,24 @@ case "$1" in
         echo "System Commands:"
         echo "  update       - Update BackSat OS from GitHub"
         echo "  reload       - Reload systemd services"
+        echo "  check        - Check installation status and files"
+        echo ""
+        echo "Quick Start:"
+        echo "1. Run 'backsat start' to start all services"
+        echo "2. Wait 30 seconds"
+        echo "3. Connect to 'BackSat-OS' Wi-Fi (password: backsat2025)"
+        echo "4. Open http://backsat.local or http://192.168.4.1"
+        echo ""
+        echo "Troubleshooting:"
+        echo "- If Wi-Fi doesn't work: backsat wifi-restart"
+        echo "- If web interface doesn't work: backsat restart"
+        echo "- For detailed diagnostics: backsat debug"
+        echo "- To check installation: backsat check"
         echo ""
         echo "For more information visit:"
         echo "  https://github.com/RudyDeana/BackSat"
         ;;
 esac
-EOF
 
 sudo mv /tmp/backsat /usr/local/bin/backsat
 sudo chmod +x /usr/local/bin/backsat
-
-# Installing web dashboard (Flask)
-echo "[6/8] Installing web dashboard..."
-cat > /opt/backsat/dashboard/app.py << EOF
-from flask import Flask, render_template, request, jsonify, send_from_directory
-import os
-import sqlite3
-import datetime
-import json
-import subprocess
-app = Flask(__name__)
-# Database configuration
-def get_db():
-    conn = sqlite3.connect('/opt/backsat/database/backsat.db')
-    conn.row_factory = sqlite3.Row
-    return conn
-# Load configuration
-def load_config():
-    with open('/opt/backsat/config/config.json', 'r') as f:
-        return json.load(f)
-# Create tables if they don't exist
-def init_db():
-    with get_db() as db:
-        db.execute('''
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        db.execute('''
-        CREATE TABLE IF NOT EXISTS nodes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            node_id TEXT UNIQUE NOT NULL,
-            node_name TEXT NOT NULL,
-            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        db.execute('''
-        CREATE TABLE IF NOT EXISTS files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
-            description TEXT,
-            uploaded_by TEXT NOT NULL,
-            path TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-init_db()
-@app.route('/')
-def index():
-    config = load_config()
-    return render_template('index.html', config=config)
-@app.route('/messages', methods=['GET', 'POST'])
-def messages():
-    if request.method == 'POST':
-        data = request.json
-        sender = data.get('sender', 'Anonymous')
-        content = data.get('content')
-        
-        if content:
-            with get_db() as db:
-                db.execute('INSERT INTO messages (sender, content) VALUES (?, ?)',
-                          (sender, content))
-            return jsonify({'status': 'success'})
-        return jsonify({'status': 'error', 'message': 'Content required'})
-    
-    # GET request - retrieve messages
-    with get_db() as db:
-        messages = db.execute('SELECT * FROM messages ORDER BY timestamp DESC LIMIT 100').fetchall()
-    
-    return jsonify([dict(msg) for msg in messages])
-@app.route('/system/info')
-def system_info():
-    config = load_config()
-    
-    # System information
-    uptime = subprocess.check_output("uptime -p", shell=True).decode('utf-8').strip()
-    
-    # Count nearby nodes (simulated for now)
-    with get_db() as db:
-        nearby_nodes = len(db.execute('SELECT * FROM nodes').fetchall())
-    
-    return jsonify({
-        'node_name': config['system']['node_name'],
-        'mode': config['system']['mode'],
-        'version': config['system']['version'],
-        'uptime': uptime,
-        'nearby_nodes': nearby_nodes,
-        'wifi': {
-            'ssid': config['wifi']['ssid']
-        }
-    })
-@app.route('/files', methods=['GET', 'POST'])
-def files():
-    if request.method == 'POST':
-        # File upload handling (to be implemented)
-        return jsonify({'status': 'error', 'message': 'Feature in development'})
-    
-    # GET request - retrieve files
-    with get_db() as db:
-        files = db.execute('SELECT * FROM files ORDER BY timestamp DESC').fetchall()
-    
-    return jsonify([dict(f) for f in files])
-@app.route('/addons')
-def addons():
-    config = load_config()
-    return jsonify({
-        'enabled': config['addons']['enabled'],
-        'available': os.listdir('/opt/backsat/addons/available') if os.path.exists('/opt/backsat/addons/available') else []
-    })
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-EOF
-# Creating basic HTML templates
-mkdir -p /opt/backsat/dashboard/templates
-cat > /opt/backsat/dashboard/templates/index.html << EOF
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BackSat OS - Dashboard</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f0f0f0;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        .module {
-            margin-bottom: 20px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }
-        .module h2 {
-            margin-top: 0;
-            color: #444;
-        }
-        .chat-container {
-            height: 300px;
-            overflow-y: auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin-bottom: 10px;
-        }
-        .message {
-            margin-bottom: 10px;
-            padding: 8px;
-            border-radius: 5px;
-        }
-        .message .sender {
-            font-weight: bold;
-        }
-        .message .time {
-            font-size: 0.8em;
-            color: #888;
-        }
-        #message-form {
-            display: flex;
-        }
-        #message-input {
-            flex-grow: 1;
-            padding: 8px;
-            margin-right: 10px;
-        }
-        .tabs {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 1px solid #ddd;
-        }
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            background: #f5f5f5;
-            border: 1px solid #ddd;
-            border-bottom: none;
-            margin-right: 5px;
-            border-radius: 5px 5px 0 0;
-        }
-        .tab.active {
-            background: white;
-            font-weight: bold;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>BackSat OS - Dashboard</h1>
-        
-        <div class="tabs">
-            <div class="tab active" data-tab="home">Home</div>
-            <div class="tab" data-tab="chat">P2P Chat</div>
-            <div class="tab" data-tab="files">Files</div>
-            <div class="tab" data-tab="settings">Settings</div>
-        </div>
-        
-        <div id="home" class="tab-content active">
-            <div class="module">
-                <h2>System Status</h2>
-                <p>Node name: <strong id="node-name">Loading...</strong></p>
-                <p>Mode: <strong id="mode">Loading...</strong></p>
-                <p>Version: <strong id="version">Loading...</strong></p>
-                <p>Network SSID: <strong id="wifi-ssid">Loading...</strong></p>
-                <p>Uptime: <strong id="uptime">Loading...</strong></p>
-                <p>Nearby nodes: <strong id="nearby-nodes">Loading...</strong></p>
-            </div>
-            
-            <div class="module">
-                <h2>Installed Add-ons</h2>
-                <div id="addon-list">Loading...</div>
-            </div>
-        </div>
-        
-        <div id="chat" class="tab-content">
-            <div class="module">
-                <h2>P2P Chat</h2>
-                <div id="chat-container" class="chat-container">
-                    <!-- Messages will be loaded here -->
-                </div>
-                <form id="message-form">
-                    <input type="text" id="message-input" placeholder="Write a message...">
-                    <button type="submit">Send</button>
-                </form>
-            </div>
-        </div>
-        
-        <div id="files" class="tab-content">
-            <div class="module">
-                <h2>Shared Files</h2>
-                <p>Feature in development...</p>
-            </div>
-        </div>
-        
-        <div id="settings" class="tab-content">
-            <div class="module">
-                <h2>Settings</h2>
-                <p>Settings can be modified from command line:</p>
-                <code>backsat wifi-config new-ssid new-password</code>
-                <p>To see all available commands:</p>
-                <code>backsat help</code>
-            </div>
-        </div>
-    </div>
-    <script>
-        // Tab switching
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', function() {
-                // Remove active from all tabs
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
-                // Add active to clicked tab
-                this.classList.add('active');
-                document.getElementById(this.dataset.tab).classList.add('active');
-            });
-        });
-        
-        // Load system information
-        function loadSystemInfo() {
-            fetch('/system/info')
-                .then(response => response.json())
-                .then(info => {
-                    document.getElementById('node-name').textContent = info.node_name;
-                    document.getElementById('mode').textContent = info.mode;
-                    document.getElementById('version').textContent = info.version;
-                    document.getElementById('wifi-ssid').textContent = info.wifi.ssid;
-                    document.getElementById('uptime').textContent = info.uptime;
-                    document.getElementById('nearby-nodes').textContent = info.nearby_nodes + ' nodes';
-                })
-                .catch(error => console.error('Error loading system info:', error));
-        }
-        
-        // Load addons
-        function loadAddons() {
-            fetch('/addons')
-                .then(response => response.json())
-                .then(data => {
-                    const addonList = document.getElementById('addon-list');
-                    if (data.enabled.length === 0) {
-                        addonList.textContent = 'No active add-ons';
-                    } else {
-                        addonList.innerHTML = '<ul>' + 
-                            data.enabled.map(addon => `<li>${addon}</li>`).join('') +
-                            '</ul>';
-                    }
-                })
-                .catch(error => console.error('Error loading addons:', error));
-        }
-        
-        // Function to load messages
-        function loadMessages() {
-            fetch('/messages')
-                .then(response => response.json())
-                .then(messages => {
-                    const chatContainer = document.getElementById('chat-container');
-                    chatContainer.innerHTML = '';
-                    
-                    messages.forEach(msg => {
-                        const messageDiv = document.createElement('div');
-                        messageDiv.className = 'message';
-                        
-                        const senderSpan = document.createElement('span');
-                        senderSpan.className = 'sender';
-                        senderSpan.textContent = msg.sender + ': ';
-                        
-                        const contentSpan = document.createElement('span');
-                        contentSpan.textContent = msg.content;
-                        
-                        const timeSpan = document.createElement('span');
-                        timeSpan.className = 'time';
-                        timeSpan.textContent = ' - ' + new Date(msg.timestamp).toLocaleTimeString();
-                        
-                        messageDiv.appendChild(senderSpan);
-                        messageDiv.appendChild(contentSpan);
-                        messageDiv.appendChild(timeSpan);
-                        
-                        chatContainer.appendChild(messageDiv);
-                    });
-                })
-                .catch(error => console.error('Error loading messages:', error));
-        }
-        
-        // Send a new message
-        document.getElementById('message-form').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const input = document.getElementById('message-input');
-            const content = input.value.trim();
-            
-            if (content) {
-                fetch('/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        sender: 'Local user',
-                        content: content
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        input.value = '';
-                        loadMessages();
-                    }
-                })
-                .catch(error => console.error('Error sending message:', error));
-            }
-        });
-        
-        // Load information at startup
-        loadSystemInfo();
-        loadAddons();
-        loadMessages();
-        
-        // Update every 10 seconds
-        setInterval(loadSystemInfo, 10000);
-        setInterval(loadMessages, 5000);
-    </script>
-</body>
-</html>
-EOF
-# Configurazione Nginx migliorata
-cat > /tmp/backsat << EOF
-server {
-    listen 80;
-    listen [::]:80;
-    
-    server_name backsat.local;
-    
-    access_log /var/log/nginx/backsat.access.log;
-    error_log /var/log/nginx/backsat.error.log;
-
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
-        # Timeouts più lunghi per debug
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-}
-EOF
-
-sudo mv /tmp/backsat /etc/nginx/sites-available/backsat
-sudo ln -sf /etc/nginx/sites-available/backsat /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-
-# Configurazione systemd per Flask
-cat > /tmp/backsat.service << EOF
-[Unit]
-Description=BackSat OS Dashboard
-After=network.target
-
-[Service]
-User=root
-WorkingDirectory=/opt/backsat/dashboard
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/usr/bin/python3 app.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo mv /tmp/backsat.service /etc/systemd/system/backsat.service
-
-# Aggiungere script di test connettività
-cat > /tmp/backsat-test << 'EOF'
-#!/bin/bash
-
-echo "=== Test Connettività BackSat ==="
-echo "1. Test DNS locale..."
-nslookup backsat.local 192.168.4.1
-
-echo -e "\n2. Test connessione web..."
-curl -v http://backsat.local
-
-echo -e "\n3. Status servizi web..."
-systemctl status nginx
-systemctl status backsat
-
-echo -e "\n4. Log nginx..."
-tail -n 20 /var/log/nginx/error.log
-
-echo -e "\n5. Log applicazione..."
-journalctl -u backsat -n 20
-EOF
-
-sudo mv /tmp/backsat-test /usr/local/bin/backsat-test
-sudo chmod +x /usr/local/bin/backsat-test
-
-# Prima di finire, ricaricare systemd
-sudo systemctl daemon-reload
-
-# Abilitare i servizi
-echo "[7/8] Enabling services..."
-sudo systemctl unmask hostapd
-sudo systemctl enable hostapd
-sudo systemctl enable dnsmasq
-sudo systemctl enable backsat
-sudo systemctl enable nginx
-
-# Messaggio finale
-echo ""
-echo "====================================================="
-echo "BackSat OS installation completed!"
-echo "====================================================="
-echo ""
-echo "Your BackSat node is ready."
-echo ""
-echo "For connection issues:"
-echo "  1. First try: backsat wifi-restart"
-echo "  2. Wait 30 seconds"
-echo "  3. If still not working:"
-echo "     - backsat status    (to see what's wrong)"
-echo "     - backsat-debug     (for detailed Wi-Fi info)"
-echo ""
-echo "To update BackSat:"
-echo "  backsat update"
-echo ""
-echo "After startup:"
-echo "1. Run: backsat start"
-echo "2. Wait 30 seconds"
-echo "3. Connect to the 'BackSat-OS' Wi-Fi network (password: backsat2025)"
-echo "4. If connection fails:"
-echo "   backsat wifi-restart"
-echo "5. Access the dashboard: http://backsat.local or http://192.168.4.1"
-echo ""
-echo "Good journey with BackSat!"
