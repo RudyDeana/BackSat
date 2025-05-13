@@ -84,7 +84,7 @@ sudo ./setup_backsat.sh
 ```
 Access at: http://192.168.4.1:3030 or http://backsat.local:3030
 
-### 📡 3. BackSat Lite (ESP32)
+### 📡 3. BackSat Lite (ESP32) *
 Ultra-portable version:
 - Low power consumption
 - Minimal hardware needed
@@ -104,6 +104,8 @@ Ultra-portable version:
 5. Flash the code
 
 Access at: http://192.168.4.1
+
+*🛠 I don't know if esp32 code actualy works if not open a issue on this github
 
 ## 🛠 Technical Details
 
