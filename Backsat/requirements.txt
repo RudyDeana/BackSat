@@ -1,0 +1,25 @@
+# Web Framework
+flask==3.0.0
+flask-socketio==5.3.6
+
+# Network & Communication
+websockets==12.0
+requests==2.31.0
+netifaces==0.11.0
+
+# Security & Encryption
+cryptography==41.0.7
+
+# QR Code Generation
+qrcode==7.4.2
+pillow==10.1.0
+
+# Environment & Configuration
+python-dotenv==1.0.0
+
+# System Utilities
+psutil==5.9.7
+
+# CLI & Logging
+rich==13.7.0
+colorama==0.4.6 

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BackSat - The Backpack Satellite</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2">🛰 BackSat</h1>
+            <p class="text-gray-400">Your Personal Terrestrial Satellite</p>
+            <div class="mt-4">
+                <span id="connection-status" class="px-3 py-1 rounded-full text-sm font-medium bg-blue-700">
+                    Initializing...
+                </span>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Chat Panel -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">💬 Mesh Chat</h2>
+                <div id="chat-messages" class="h-64 overflow-y-auto mb-4 bg-gray-700 rounded p-2"></div>
+                <div class="flex">
+                    <input type="text" id="message-input" class="flex-1 bg-gray-700 rounded-l px-4 py-2" placeholder="Type a message...">
+                    <button id="send-button" class="bg-blue-600 px-6 py-2 rounded-r hover:bg-blue-700">Send</button>
+                </div>
+            </div>
+
+            <!-- Network Panel -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">📡 Network Status</h2>
+                <div class="mb-4">
+                    <h3 class="font-medium mb-2">Your Node</h3>
+                    <div id="node-info" class="bg-gray-700 rounded p-2">
+                        <p>ID: <span id="node-id">Loading...</span></p>
+                        <p>Active Nodes: <span id="active-nodes-count">0</span></p>
+                        <p class="text-sm text-gray-400">Max Range: 3km</p>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="font-medium mb-2">Connected Nodes</h3>
+                    <div id="active-nodes" class="space-y-2 max-h-48 overflow-y-auto">
+                        <!-- Nodes will be added here dynamically -->
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <canvas id="network-graph" class="w-full h-32"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Sharing Panel -->
+        <div class="mt-6 bg-gray-800 rounded-lg p-4">
+            <h2 class="text-xl font-bold mb-4">📁 File Sharing</h2>
+            <div class="flex items-center space-x-4">
+                <input type="file" id="file-input" class="hidden" multiple>
+                <button onclick="document.getElementById('file-input').click()" class="bg-green-600 px-6 py-2 rounded hover:bg-green-700">
+                    Select Files
+                </button>
+                <span id="selected-file" class="text-gray-400">No files selected</span>
+            </div>
+            <div class="mt-4">
+                <h3 class="font-medium mb-2">Shared Files</h3>
+                <div id="file-list" class="space-y-2 bg-gray-700 rounded p-2 max-h-32 overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <!-- Tools Panel -->
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- SOS Panel -->
+            <div class="bg-red-900 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">🆘 Emergency</h2>
+                <button id="sos-button" class="w-full bg-red-600 px-8 py-3 rounded-lg hover:bg-red-700 font-bold">
+                    SEND SOS
+                </button>
+            </div>
+
+            <!-- QR Code Panel -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">📱 Quick Connect</h2>
+                <div id="qr-code" class="bg-white p-2 rounded flex justify-center"></div>
+                <p class="mt-2 text-sm text-center text-gray-400">Scan to connect another device</p>
+            </div>
+
+            <!-- System Status -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">📊 System Status</h2>
+                <div class="space-y-2">
+                    <div class="bg-gray-700 rounded p-2">
+                        <p>CPU: <span id="cpu-usage">0%</span></p>
+                        <div class="w-full bg-gray-600 rounded-full h-2">
+                            <div id="cpu-bar" class="bg-blue-600 rounded-full h-2" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-700 rounded p-2">
+                        <p>Memory: <span id="memory-usage">0%</span></p>
+                        <div class="w-full bg-gray-600 rounded-full h-2">
+                            <div id="memory-bar" class="bg-green-600 rounded-full h-2" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io({
+            reconnectionAttempts: 3,
+            timeout: 5000
+        });
+        let networkChart;
+        let connectionAttempts = 0;
+        
+        // Set initial status
+        updateConnectionStatus('initializing');
+        
+        // Connection handling
+        socket.on('connect', () => {
+            console.log('Connected to BackSat server');
+            connectionAttempts = 0;
+            updateConnectionStatus('server_connected');
+        });
+
+        socket.on('connect_error', (error) => {
+            console.log('Connection error:', error);
+            connectionAttempts++;
+            if (connectionAttempts >= 3) {
+                updateConnectionStatus('server_error');
+            }
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from BackSat server');
+            updateConnectionStatus('server_disconnected');
+        });
+
+        // Network status handling
+        socket.on('network_status', (status) => {
+            if (!status) return;
+            
+            // Update node info
+            document.getElementById('node-id').textContent = status.node_id || 'N/A';
+            document.getElementById('active-nodes-count').textContent = status.active_nodes || 0;
+
+            // Update connection status based on both socket and mesh status
+            if (socket.connected) {
+                updateConnectionStatus(status.active_nodes > 0 ? 'mesh_connected' : 'mesh_waiting');
+            }
+
+            // Update nodes list
+            const nodesDiv = document.getElementById('active-nodes');
+            nodesDiv.innerHTML = '';
+
+            status.nodes.forEach(node => {
+                const nodeElement = document.createElement('div');
+                nodeElement.className = 'bg-gray-700 rounded p-2 flex justify-between items-center';
+                
+                const distanceClass = node.distance > 2.5 ? 'text-red-400' : 
+                                    node.distance > 1.5 ? 'text-yellow-400' : 
+                                    'text-green-400';
+                
+                nodeElement.innerHTML = `
+                    <div>
+                        <p class="font-medium">${node.id}</p>
+                        <p class="text-sm text-gray-400">Last seen: ${node.last_seen}s ago</p>
+                    </div>
+                    <div class="${distanceClass}">
+                        ${node.distance.toFixed(1)}km
+                    </div>
+                `;
+                nodesDiv.appendChild(nodeElement);
+            });
+
+            // Update network graph
+            if (networkChart && status.nodes.length > 0) {
+                const labels = networkChart.data.labels;
+                const data = networkChart.data.datasets[0].data;
+                
+                if (labels.length > 10) {
+                    labels.shift();
+                    data.shift();
+                }
+                
+                labels.push(new Date().toLocaleTimeString());
+                data.push(status.active_nodes);
+                networkChart.update();
+            }
+        });
+
+        // Message handling
+        socket.on('message', (data) => {
+            const messagesDiv = document.getElementById('chat-messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'mb-2 p-2 rounded ' + 
+                (data.sender === 'You' ? 'bg-blue-900 ml-8' : 'bg-gray-600 mr-8');
+            messageElement.textContent = `${data.sender}: ${data.text}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+        // Send message
+        document.getElementById('send-button').addEventListener('click', () => {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            if (message) {
+                socket.emit('message', {
+                    type: 'chat',
+                    text: message,
+                    sender: 'You'
+                });
+                input.value = '';
+            }
+        });
+
+        // Enter key to send
+        document.getElementById('message-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('send-button').click();
+            }
+        });
+
+        // SOS handling
+        document.getElementById('sos-button').addEventListener('click', () => {
+            if (confirm('Are you sure you want to send an SOS signal to all nodes?')) {
+                socket.emit('sos', {
+                    type: 'sos',
+                    timestamp: new Date().toISOString()
+                });
+                alert('SOS signal sent to all network nodes!');
+            }
+        });
+
+        // File handling
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length > 0) {
+                document.getElementById('selected-file').textContent = 
+                    files.length === 1 ? files[0].name : `${files.length} files selected`;
+                
+                // Show file list
+                const fileList = document.getElementById('file-list');
+                fileList.innerHTML = '';
+                files.forEach(file => {
+                    const fileElement = document.createElement('div');
+                    fileElement.className = 'flex justify-between items-center p-2 bg-gray-600 rounded';
+                    fileElement.innerHTML = `
+                        <span>${file.name}</span>
+                        <span class="text-sm text-gray-400">${(file.size / 1024).toFixed(1)} KB</span>
+                    `;
+                    fileList.appendChild(fileElement);
+                });
+            }
+        });
+
+        // System status updates
+        socket.on('system_status', (data) => {
+            document.getElementById('cpu-usage').textContent = `${data.cpu}%`;
+            document.getElementById('cpu-bar').style.width = `${data.cpu}%`;
+            document.getElementById('memory-usage').textContent = `${data.memory}%`;
+            document.getElementById('memory-bar').style.width = `${data.memory}%`;
+        });
+
+        // Location updates
+        if ("geolocation" in navigator) {
+            navigator.geolocation.watchPosition((position) => {
+                socket.emit('update_location', {
+                    lat: position.coords.latitude,
+                    lon: position.coords.longitude
+                });
+            }, (error) => {
+                console.log("Error getting location:", error);
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: 30000,
+                timeout: 27000
+            });
+        }
+
+        // Initialize network graph
+        function initNetworkGraph() {
+            const ctx = document.getElementById('network-graph').getContext('2d');
+            networkChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Active Nodes',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        tension: 0.4,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#9CA3AF'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#9CA3AF'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#9CA3AF'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize
+        initNetworkGraph();
+
+        // Load QR code
+        fetch('/qr')
+            .then(response => response.json())
+            .then(data => {
+                const qrDiv = document.getElementById('qr-code');
+                const img = document.createElement('img');
+                img.src = data.qr_url;
+                img.alt = 'Connection QR Code';
+                img.className = 'max-w-full h-auto';
+                qrDiv.innerHTML = '';
+                qrDiv.appendChild(img);
+            })
+            .catch(error => console.error('Error loading QR code:', error));
+
+        // Add this function at the end of the script section
+        function updateConnectionStatus(status) {
+            const statusElement = document.getElementById('connection-status');
+            switch(status) {
+                case 'initializing':
+                    statusElement.className = 'px-3 py-1 rounded-full text-sm font-medium bg-blue-700';
+                    statusElement.textContent = 'Starting BackSat Node...';
+                    break;
+                case 'server_error':
+                case 'server_disconnected':
+                    statusElement.className = 'px-3 py-1 rounded-full text-sm font-medium bg-yellow-700';
+                    statusElement.textContent = 'Node Active (Standalone)';
+                    break;
+                case 'server_connected':
+                    statusElement.className = 'px-3 py-1 rounded-full text-sm font-medium bg-blue-700';
+                    statusElement.textContent = 'Node Active';
+                    break;
+                case 'mesh_connected':
+                    statusElement.className = 'px-3 py-1 rounded-full text-sm font-medium bg-green-700';
+                    statusElement.textContent = `Mesh Network Active`;
+                    break;
+                case 'mesh_waiting':
+                    statusElement.className = 'px-3 py-1 rounded-full text-sm font-medium bg-yellow-700';
+                    statusElement.textContent = 'Searching for Other Nodes...';
+                    break;
+                default:
+                    statusElement.className = 'px-3 py-1 rounded-full text-sm font-medium bg-gray-700';
+                    statusElement.textContent = 'Node Status Unknown';
+            }
+        }
+    </script>
+</body>
+</html> 

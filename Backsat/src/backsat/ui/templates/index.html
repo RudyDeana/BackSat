@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BackSat - Il Satellite nello Zaino</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2">🛰 BackSat</h1>
+            <p class="text-gray-400">Il tuo satellite personale</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Pannello Chat -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">💬 Chat Mesh</h2>
+                <div id="chat-messages" class="h-64 overflow-y-auto mb-4 bg-gray-700 rounded p-2"></div>
+                <div class="flex">
+                    <input type="text" id="message-input" class="flex-1 bg-gray-700 rounded-l px-4 py-2" placeholder="Scrivi un messaggio...">
+                    <button id="send-button" class="bg-blue-600 px-6 py-2 rounded-r hover:bg-blue-700">Invia</button>
+                </div>
+            </div>
+
+            <!-- Pannello Nodi -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-xl font-bold mb-4">📡 Nodi Attivi</h2>
+                <div id="active-nodes" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- Pannello File Sharing -->
+        <div class="mt-6 bg-gray-800 rounded-lg p-4">
+            <h2 class="text-xl font-bold mb-4">📁 Condivisione File</h2>
+            <div class="flex items-center space-x-4">
+                <input type="file" id="file-input" class="hidden">
+                <button onclick="document.getElementById('file-input').click()" class="bg-green-600 px-6 py-2 rounded hover:bg-green-700">
+                    Seleziona File
+                </button>
+                <span id="selected-file" class="text-gray-400">Nessun file selezionato</span>
+            </div>
+            <div id="file-list" class="mt-4 space-y-2"></div>
+        </div>
+
+        <!-- Pannello SOS -->
+        <div class="mt-6 bg-red-900 rounded-lg p-4">
+            <h2 class="text-xl font-bold mb-4">🆘 Emergenza</h2>
+            <button id="sos-button" class="bg-red-600 px-8 py-3 rounded-lg hover:bg-red-700 font-bold">
+                INVIA SOS
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        
+        // Gestione connessione
+        socket.on('connect', () => {
+            console.log('Connesso al server BackSat');
+        });
+
+        // Gestione messaggi
+        socket.on('message', (data) => {
+            const messagesDiv = document.getElementById('chat-messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'mb-2';
+            messageElement.textContent = `${data.sender}: ${data.text}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+        // Invio messaggi
+        document.getElementById('send-button').addEventListener('click', () => {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            if (message) {
+                socket.emit('message', {
+                    type: 'chat',
+                    text: message,
+                    sender: 'Tu'
+                });
+                input.value = '';
+            }
+        });
+
+        // Gestione SOS
+        document.getElementById('sos-button').addEventListener('click', () => {
+            socket.emit('sos', {
+                type: 'sos',
+                timestamp: new Date().toISOString()
+            });
+            alert('Segnale SOS inviato a tutti i nodi della rete!');
+        });
+
+        // Gestione file
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('selected-file').textContent = file.name;
+                // Qui implementeremo la logica di upload
+            }
+        });
+    </script>
+</body>
+</html> 
